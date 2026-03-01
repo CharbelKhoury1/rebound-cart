@@ -1,0 +1,36 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "2bbea32619cd47ba9d4f9487a435ad8e"
+name = "ReboundCart"
+application_url = "https://example.com"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+include_config_on_deploy = true
+
+[webhooks]
+api_version = "2025-01"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+  [[webhooks.subscriptions]]
+  topics = [ "checkouts/create" ]
+  uri = "/webhooks/checkouts/create"
+
+  [[webhooks.subscriptions]]
+  topics = [ "checkouts/update" ]
+  uri = "/webhooks/checkouts/update"
+
+  [[webhooks.subscriptions]]
+  topics = [ "orders/create" ]
+  uri = "/webhooks/orders/create"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_orders, read_checkouts, read_customers"
+
+[auth]
+redirect_urls = [ "https://example.com/api/auth" ]

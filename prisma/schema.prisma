@@ -1,0 +1,91 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
+// enough when changing adapters.
+// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
+datasource db {
+  provider = "sqlite"
+  url      = "file:dev.sqlite"
+}
+
+model Session {
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+model SalesRep {
+  id                String              @id @default(uuid())
+  email             String              @unique
+  firstName         String?
+  lastName          String?
+  role              String              @default("REP") // "ADMIN", "REP"
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  claimedCheckouts AbandonedCheckout[]
+  commissions       Commission[]
+}
+
+model AbandonedCheckout {
+  id            String      @id @default(uuid())
+  shop          String
+  checkoutId    String      @unique
+  cartToken     String?
+  email         String?
+  name          String?
+  totalPrice    Decimal
+  currency      String
+  checkoutUrl   String?
+  status        String      @default("ABANDONED") // "ABANDONED", "RECOVERED"
+  claimedBy     SalesRep?   @relation(fields: [claimedById], references: [id])
+  claimedById   String?
+  claimedAt     DateTime?
+  orderId       String?     @unique
+  commission    Commission?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([shop])
+}
+
+model Commission {
+  id               String            @id @default(uuid())
+  orderId          String            @unique
+  orderNumber      String?
+  totalAmount      Decimal
+  commissionAmount Decimal
+  status           String            @default("PENDING") // "PENDING", "PAID"
+  checkout         AbandonedCheckout @relation(fields: [checkoutId], references: [id])
+  checkoutId       String            @unique
+  rep              SalesRep          @relation(fields: [repId], references: [id])
+  repId            String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+}
+
+model ShopSettings {
+  id             String   @id @default(uuid())
+  shop           String   @unique
+  commissionRate Decimal  @default(10.0) // Percentage
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
