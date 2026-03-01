@@ -30,7 +30,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     });
   } catch (error) {
     console.error(`Error processing ${topic} webhook:`, error);
+    return new Response("Webhook processing failed", { status: 500 });
   }
 
-  return new Response();
+  return new Response("Webhook processed successfully", { status: 200 });
 };

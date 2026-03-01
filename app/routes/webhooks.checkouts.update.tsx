@@ -7,7 +7,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     console.log(`Received ${topic} webhook for ${shop}`);
 
-    const { id, email, total_price, currency } = payload;
+    const { id, email, token, total_price, currency } = payload;
 
     try {
         await db.abandonedCheckout.upsert({
@@ -20,6 +20,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             create: {
                 shop,
                 checkoutId: String(id),
+                cartToken: token,
                 email: email || null,
                 totalPrice: total_price,
                 currency,
@@ -28,7 +29,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         });
     } catch (error) {
         console.error(`Error processing ${topic} webhook:`, error);
+        return new Response("Webhook processing failed", { status: 500 });
     }
 
-    return new Response();
+    return new Response("Webhook processed successfully", { status: 200 });
 };

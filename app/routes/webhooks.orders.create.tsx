@@ -14,49 +14,52 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     try {
-        const abandonedCheckout = await db.abandonedCheckout.findUnique({
-            where: { checkoutId: String(checkout_id) },
-        });
-
-        if (abandonedCheckout && abandonedCheckout.status !== "RECOVERED") {
-            // 1. Mark as Recovered
-            await db.abandonedCheckout.update({
-                where: { id: abandonedCheckout.id },
-                data: {
-                    status: "RECOVERED",
-                    orderId: String(id),
-                },
+        await db.$transaction(async (tx) => {
+            const abandonedCheckout = await tx.abandonedCheckout.findUnique({
+                where: { checkoutId: String(checkout_id) },
             });
 
-            // 2. If it was claimed by a rep, calculate commission
-            if (abandonedCheckout.claimedById) {
-                const settings = await db.shopSettings.findUnique({
-                    where: { shop },
-                });
-
-                const rate = settings?.commissionRate ? Number(settings.commissionRate) : 10;
-                const commissionAmount = (Number(total_price) * rate) / 100;
-
-                await db.commission.upsert({
-                    where: { orderId: String(id) },
-                    update: {
-                        commissionAmount,
-                        totalAmount: total_price,
-                    },
-                    create: {
+            if (abandonedCheckout && abandonedCheckout.status !== "RECOVERED") {
+                // 1. Mark as Recovered
+                await tx.abandonedCheckout.update({
+                    where: { id: abandonedCheckout.id },
+                    data: {
+                        status: "RECOVERED",
                         orderId: String(id),
-                        orderNumber: String(order_number),
-                        totalAmount: total_price,
-                        commissionAmount,
-                        checkoutId: abandonedCheckout.id,
-                        repId: abandonedCheckout.claimedById,
                     },
                 });
+
+                // 2. If it was claimed by a rep, calculate commission
+                if (abandonedCheckout.claimedById) {
+                    const settings = await tx.shopSettings.findUnique({
+                        where: { shop },
+                    });
+
+                    const rate = settings?.commissionRate ? Number(settings.commissionRate) : 10;
+                    const commissionAmount = (Number(total_price) * rate) / 100;
+
+                    await tx.commission.upsert({
+                        where: { orderId: String(id) },
+                        update: {
+                            commissionAmount,
+                            totalAmount: total_price,
+                        },
+                        create: {
+                            orderId: String(id),
+                            orderNumber: String(order_number),
+                            totalAmount: total_price,
+                            commissionAmount,
+                            checkoutId: abandonedCheckout.id,
+                            repId: abandonedCheckout.claimedById,
+                        },
+                    });
+                }
             }
-        }
+        });
     } catch (error) {
         console.error(`Error processing ${topic} webhook:`, error);
+        return new Response("Webhook processing failed", { status: 500 });
     }
 
-    return new Response();
+    return new Response("Webhook processed successfully", { status: 200 });
 };

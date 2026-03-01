@@ -11,6 +11,13 @@ import {
   DataTable,
   TextField,
   Badge,
+  Divider,
+  Grid,
+  Thumbnail,
+  Icon,
+  Modal,
+  ChoiceList,
+  FormLayout,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -40,12 +47,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
   const totalCommissionPaid = commissions.reduce((sum: number, c: any) => sum + Number(c.commissionAmount), 0);
 
-  // 3. Get recent checkouts
+  // 3. Get recent checkouts and sales reps
   const recentCheckouts = await db.abandonedCheckout.findMany({
     where: { shop },
     orderBy: { createdAt: "desc" },
     take: 10,
     include: { claimedBy: true },
+  });
+
+  const salesReps = await db.salesRep.findMany({
+    where: {}, // Get all reps for now, could be filtered by shop in future
+    orderBy: { createdAt: "desc" },
+    take: 5,
   });
 
   return json({
@@ -57,6 +70,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       totalCommissionPaid,
     },
     recentCheckouts,
+    salesReps,
   });
 };
 
@@ -67,22 +81,33 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const commissionRate = formData.get("commissionRate");
 
   if (commissionRate) {
+    const rate = Number(commissionRate);
+    
+    // Validate commission rate
+    if (isNaN(rate) || rate < 0 || rate > 100) {
+      return json({ 
+        success: false, 
+        error: "Commission rate must be a number between 0 and 100" 
+      }, { status: 400 });
+    }
+
     await db.shopSettings.upsert({
       where: { shop },
-      update: { commissionRate: Number(commissionRate) },
-      create: { shop, commissionRate: Number(commissionRate) },
+      update: { commissionRate: rate },
+      create: { shop, commissionRate: rate },
     });
   }
 
-  return json({ success: true });
+  return json({ success: true, error: undefined });
 };
 
 export default function Index() {
-  const { settings, stats, recentCheckouts } = useLoaderData<typeof loader>();
+  const { settings, stats, recentCheckouts, salesReps } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
+  const actionData = useActionData<typeof action>();
 
   const checkoutRows = recentCheckouts.map((checkout) => [
-    checkout.checkoutId,
+    checkout.checkoutId.slice(-8) + "...", // Shortened ID for display
     checkout.email || "N/A",
     `${checkout.totalPrice} ${checkout.currency}`,
     <Badge tone={checkout.status === "RECOVERED" ? "success" : "attention"}>
@@ -91,42 +116,61 @@ export default function Index() {
     checkout.claimedBy ? `${checkout.claimedBy.firstName} ${checkout.claimedBy.lastName}` : "Unclaimed",
   ]);
 
+  const repRows = salesReps.map((rep) => [
+    `${rep.firstName} ${rep.lastName}`,
+    rep.email,
+    <Badge tone={rep.role === "ADMIN" ? "info" as const : "success" as const}>{rep.role}</Badge>,
+    new Date(rep.createdAt).toLocaleDateString(),
+  ]);
+
   return (
     <Page>
       <TitleBar title="ReboundCart Dashboard" />
       <BlockStack gap="500">
         <Layout>
-          {/* Stats Section */}
+          {/* Enhanced Stats Section */}
           <Layout.Section>
-            <InlineStack gap="400" align="start">
-              <Box minWidth="200px">
+            <Grid>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}>
                 <Card>
                   <BlockStack gap="200">
-                    <Text as="h2" variant="headingSm">Total Abandoned</Text>
-                    <Text as="p" variant="headingLg">{stats.totalAbandoned}</Text>
+                    <Text as="h2" variant="headingSm" tone="subdued">Total Abandoned</Text>
+                    <Text as="p" variant="headingLg" fontWeight="bold">{stats.totalAbandoned}</Text>
+                    <Text as="p" variant="bodySm" tone="subdued">Checkouts left behind</Text>
                   </BlockStack>
                 </Card>
-              </Box>
-              <Box minWidth="200px">
+              </Grid.Cell>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}>
                 <Card>
                   <BlockStack gap="200">
-                    <Text as="h2" variant="headingSm">Total Recovered</Text>
-                    <Text as="p" variant="headingLg">{stats.totalRecovered}</Text>
+                    <Text as="h2" variant="headingSm" tone="subdued">Total Recovered</Text>
+                    <Text as="p" variant="headingLg" fontWeight="bold" tone="success">{stats.totalRecovered}</Text>
+                    <Text as="p" variant="bodySm" tone="subdued">Successfully converted</Text>
                   </BlockStack>
                 </Card>
-              </Box>
-              <Box minWidth="200px">
+              </Grid.Cell>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}>
                 <Card>
                   <BlockStack gap="200">
-                    <Text as="h2" variant="headingSm">Recovery Rate</Text>
-                    <Text as="p" variant="headingLg">{stats.recoveryRate.toFixed(1)}%</Text>
+                    <Text as="h2" variant="headingSm" tone="subdued">Recovery Rate</Text>
+                    <Text as="p" variant="headingLg" fontWeight="bold">{stats.recoveryRate.toFixed(1)}%</Text>
+                    <Text as="p" variant="bodySm" tone="subdued">Conversion success rate</Text>
                   </BlockStack>
                 </Card>
-              </Box>
-            </InlineStack>
+              </Grid.Cell>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}>
+                <Card>
+                  <BlockStack gap="200">
+                    <Text as="h2" variant="headingSm" tone="subdued">Commission Paid</Text>
+                    <Text as="p" variant="headingLg" fontWeight="bold" tone="magic">${stats.totalCommissionPaid.toFixed(2)}</Text>
+                    <Text as="p" variant="bodySm" tone="subdued">Total to sales reps</Text>
+                  </BlockStack>
+                </Card>
+              </Grid.Cell>
+            </Grid>
           </Layout.Section>
 
-          {/* Settings Section */}
+          {/* Enhanced Settings Section */}
           <Layout.Section variant="oneThird">
             <Card>
               <fetcher.Form method="POST">
@@ -140,24 +184,53 @@ export default function Index() {
                     autoComplete="off"
                     suffix="%"
                     onChange={() => { }}
+                    error={actionData && 'error' in actionData ? actionData.error : undefined}
+                    helpText="Set the commission percentage for sales reps"
                   />
-                  <Button submit variant="primary">Update Rate</Button>
+                  <Button submit variant="primary" size="large">Update Rate</Button>
                 </BlockStack>
               </fetcher.Form>
             </Card>
+            
+            <Divider />
+            
+            <Card>
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">Quick Actions</Text>
+                <Button variant="plain" fullWidth textAlign="left" url="/app/sales-reps">Manage Sales Reps</Button>
+                <Button variant="plain" fullWidth textAlign="left" url="/app/checkouts">View All Checkouts</Button>
+                <Button variant="plain" fullWidth textAlign="left">Export Reports</Button>
+              </BlockStack>
+            </Card>
           </Layout.Section>
 
-          {/* Recent Checkouts Table */}
+          {/* Enhanced Recent Checkouts Table */}
           <Layout.Section>
-            <Card padding="0">
-              <div style={{ padding: "16px" }}>
+            <Card>
+              <BlockStack gap="400">
                 <Text as="h2" variant="headingMd">Recent Abandoned Checkouts</Text>
-              </div>
-              <DataTable
-                columnContentTypes={["text", "text", "text", "text", "text"]}
-                headings={["Checkout ID", "Customer", "Amount", "Status", "Assigned Rep"]}
-                rows={checkoutRows}
-              />
+                <DataTable
+                  columnContentTypes={["text", "text", "text", "text", "text"]}
+                  headings={["Checkout ID", "Customer", "Amount", "Status", "Assigned Rep"]}
+                  rows={checkoutRows}
+                  hoverable
+                />
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+
+          {/* Sales Reps Table */}
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">Sales Team</Text>
+                <DataTable
+                  columnContentTypes={["text", "text", "text", "text"]}
+                  headings={["Name", "Email", "Role", "Joined"]}
+                  rows={repRows}
+                  hoverable
+                />
+              </BlockStack>
             </Card>
           </Layout.Section>
         </Layout>
