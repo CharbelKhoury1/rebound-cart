@@ -1,4 +1,4 @@
-import { json, type LoaderFunctionArgs } from "@remix-run/node";
+import { json, type LoaderFunctionArgs, type ActionFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useFetcher } from "@remix-run/react";
 import {
   Page,
@@ -20,6 +20,70 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { useState } from "react";
+
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { admin, session } = await authenticate.admin(request);
+  const shop = session.shop;
+  const formData = await request.formData();
+  const intent = formData.get("intent");
+
+  if (intent === "sync") {
+    // Fetch abandoned checkouts from Shopify
+    // We'll use GraphQL for better filtering/performance
+    const response = await admin.graphql(
+      `#graphql
+      query {
+        abandonedCheckouts(first: 50) {
+          edges {
+            node {
+              id
+              email
+              totalPriceSet {
+                presentmentMoney {
+                  amount
+                  currencyCode
+                }
+              }
+              abandonedCheckoutUrl
+              createdAt
+            }
+          }
+        }
+      }`
+    );
+
+    const responseJson = await response.json();
+    const abandonedCheckouts = responseJson.data.abandonedCheckouts.edges;
+
+    for (const edge of abandonedCheckouts) {
+      const node = edge.node;
+      const checkoutId = node.id.split("/").pop(); // Get numeric ID from GID
+
+      await db.abandonedCheckout.upsert({
+        where: { checkoutId: String(checkoutId) },
+        update: {
+          totalPrice: node.totalPriceSet.presentmentMoney.amount,
+          currency: node.totalPriceSet.presentmentMoney.currencyCode,
+          email: node.email,
+        },
+        create: {
+          shop,
+          checkoutId: String(checkoutId),
+          email: node.email,
+          totalPrice: node.totalPriceSet.presentmentMoney.amount,
+          currency: node.totalPriceSet.presentmentMoney.currencyCode,
+          checkoutUrl: node.abandonedCheckoutUrl,
+          status: "ABANDONED",
+          createdAt: new Date(node.createdAt),
+        },
+      });
+    }
+
+    return json({ success: true });
+  }
+
+  return json({ success: false });
+};
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -74,9 +138,23 @@ export default function CheckoutsPage() {
     new Date(checkout.createdAt).toLocaleDateString(),
   ]);
 
+  const handleSync = () => {
+    fetcher.submit({ intent: "sync" }, { method: "post" });
+  };
+
+  const isSyncing = fetcher.state === "submitting" && fetcher.formData?.get("intent") === "sync";
+
   return (
     <Page>
-      <TitleBar title="Abandoned Checkouts" />
+      <TitleBar title="Abandoned Checkouts">
+        <Button
+          variant="primary"
+          onClick={handleSync}
+          loading={isSyncing}
+        >
+          Sync from Shopify
+        </Button>
+      </TitleBar>
 
       <BlockStack gap="500">
         {/* Stats */}
