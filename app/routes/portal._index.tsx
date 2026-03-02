@@ -60,48 +60,56 @@ export default function PortalLogin() {
 
     return (
         <Page narrowWidth>
-            <div style={{ marginTop: "100px" }}>
-                <BlockStack gap="500">
+            <div style={{
+                minHeight: "80vh",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center"
+            }}>
+                <BlockStack gap="600">
                     <Box>
-                        <BlockStack gap="200" align="center">
-                            <Text as="h1" variant="headingXl" alignment="center">Rebound Portal</Text>
-                            <Text as="p" variant="bodyMd" tone="subdued" alignment="center">
-                                Access your recovery workspace and performance metrics.
+                        <BlockStack gap="300" align="center">
+                            <Text as="h1" variant="heading2xl" alignment="center" tone="magic">ReboundCart</Text>
+                            <Text as="p" variant="bodyLg" tone="subdued" alignment="center">
+                                High-performance recovery workspace for platform representatives.
                             </Text>
                         </BlockStack>
                     </Box>
 
                     <Card>
-                        <Form method="post">
-                            <BlockStack gap="400">
-                                <Text as="h2" variant="headingMd">Sign In</Text>
-                                {actionData?.error && (
-                                    <Banner tone="critical">
-                                        <p>{actionData.error}</p>
-                                    </Banner>
-                                )}
-                                <TextField
-                                    label="Email Address"
-                                    type="email"
-                                    name="email"
-                                    value={email}
-                                    onChange={setEmail}
-                                    autoComplete="email"
-                                    placeholder="name@reboundcart.com"
-                                    helpText="Use the email provided by your administrator."
-                                />
-                                <Button submit variant="primary" loading={isLoggingIn} fullWidth size="large">
-                                    Enter Portal
-                                </Button>
-                            </BlockStack>
-                        </Form>
+                        <Box padding="500">
+                            <Form method="post">
+                                <BlockStack gap="500">
+                                    <Text as="h2" variant="headingLg">Enterprise Sign In</Text>
+                                    {actionData?.error && (
+                                        <Banner tone="critical">
+                                            <p>{actionData.error}</p>
+                                        </Banner>
+                                    )}
+                                    <TextField
+                                        label="Corporate Email"
+                                        type="email"
+                                        name="email"
+                                        value={email}
+                                        onChange={setEmail}
+                                        autoComplete="email"
+                                        placeholder="your.name@reboundcart.com"
+                                        helpText="Enter your official platform credentials."
+                                        labelHidden
+                                    />
+                                    <Button submit variant="primary" loading={isLoggingIn} fullWidth size="large">
+                                        Access Workspace
+                                    </Button>
+                                </BlockStack>
+                            </Form>
+                        </Box>
                     </Card>
 
-                    <Box padding="400">
-                        <Text as="p" tone="subdued" alignment="center">
-                            Lost access? Contact support@reboundcart.com
+                    <InlineStack align="center">
+                        <Text as="p" tone="subdued">
+                            Need an account? <Button variant="plain" onClick={() => { }}>Apply as a Representative</Button>
                         </Text>
-                    </Box>
+                    </InlineStack>
                 </BlockStack>
             </div>
         </Page>

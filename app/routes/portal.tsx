@@ -4,7 +4,12 @@ import { AppProvider } from "@shopify/shopify-app-remix/react";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 import { json } from "@remix-run/node";
 
-export const links: LinksFunction = () => [{ rel: "stylesheet", href: polarisStyles }];
+export const links: LinksFunction = () => [
+    { rel: "stylesheet", href: polarisStyles },
+    { rel: "preconnect", href: "https://fonts.googleapis.com" },
+    { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+    { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" },
+];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     return json({
@@ -17,9 +22,22 @@ export default function PortalLayout() {
 
     return (
         <AppProvider isEmbeddedApp={false} apiKey={apiKey}>
-            <div style={{ minHeight: "100vh", backgroundColor: "#f6f6f7" }}>
+            <div style={{
+                minHeight: "100vh",
+                backgroundColor: "#f1f2f4",
+                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'San Francisco', 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif"
+            }}>
                 <Outlet />
             </div>
+            <style dangerouslySetInnerHTML={{
+                __html: `
+                :root {
+                    --p-font-family-sans: 'Inter', -apple-system, sans-serif;
+                }
+                .Polaris-Header-Title { font-weight: 700; letter-spacing: -0.02em; }
+                .Polaris-Card { border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.05); }
+                .Polaris-Page { max-width: 1200px; }
+            `}} />
         </AppProvider>
     );
 }

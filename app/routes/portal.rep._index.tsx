@@ -16,10 +16,12 @@ import {
     FormLayout,
     Divider,
     Box,
+    Grid,
 } from "@shopify/polaris";
 import db from "../db.server";
 import { getSession, commitSession } from "../sessions.server";
 import { useState } from "react";
+import { generateAIQualityAssessment } from "../utils/ai.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const session = await getSession(request.headers.get("Cookie"));
@@ -107,9 +109,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         const channel = formData.get("channel") as string;
         const content = formData.get("content") as string;
 
+        // NEW: AI-powered quality assessment
+        const qc = await generateAIQualityAssessment(content);
+
         await (db as any).$transaction([
             (db as any).communication.create({
-                data: { checkoutId, repId: userId, channel, content, qcScore: 85, qcFeedback: "Great!", sentiment: "Positive" },
+                data: {
+                    checkoutId,
+                    repId: userId,
+                    channel,
+                    content,
+                    qcScore: qc.score,
+                    qcFeedback: qc.feedback,
+                    sentiment: qc.sentiment
+                },
             }),
             (db.abandonedCheckout as any).update({
                 where: { id: checkoutId },
@@ -131,15 +144,20 @@ export default function RepPortalDashboard() {
     const fetcher = useFetcher();
     const isSubmitting = fetcher.state === "submitting";
 
-    const checkoutRows = salesRep?.claimedCheckouts?.map((checkout: any) => [
-        checkout.checkoutId.slice(-8),
-        checkout.email || "N/A",
-        `${checkout.totalPrice} ${checkout.currency}`,
-        <Badge key="status" tone={checkout.status === "RECOVERED" ? "success" : "attention"}>{checkout.status}</Badge>,
-        checkout.lastContactedAt ? new Date(checkout.lastContactedAt).toLocaleDateString() : "Never",
-        <Badge key="qc" tone="info">85%</Badge>,
-        <Button key="action" size="slim" variant="plain" onClick={() => { setSelectedCheckout(checkout); setModalActive(true); }}>Work</Button>,
-    ]) || [];
+    const checkoutRows = salesRep?.claimedCheckouts?.map((checkout: any) => {
+        const lastComm = checkout.communications?.[0];
+        return [
+            checkout.checkoutId.slice(-8),
+            checkout.email || "N/A",
+            `${Number(checkout.totalPrice).toFixed(2)} ${checkout.currency}`,
+            <Badge key="status" tone={checkout.status === "RECOVERED" ? "success" : "attention"}>{checkout.status}</Badge>,
+            checkout.lastContactedAt ? new Date(checkout.lastContactedAt).toLocaleDateString() : "Never",
+            <Badge key="qc" tone={lastComm?.qcScore > 80 ? "success" : lastComm?.qcScore > 50 ? "attention" : "critical"}>
+                {lastComm ? `${lastComm.qcScore}%` : "N/A"}
+            </Badge>,
+            <Button key="action" size="slim" variant="plain" onClick={() => { setSelectedCheckout(checkout); setModalActive(true); }}>Work</Button>,
+        ];
+    }) || [];
 
     const marketplaceRows = availableCheckouts?.map((checkout: any) => [
         checkout.checkoutId.slice(-8),
@@ -163,22 +181,94 @@ export default function RepPortalDashboard() {
                 </InlineStack>
             </Box>
             <Page fullWidth>
-                <Layout>
-                    <Layout.Section variant="oneThird">
-                        <Card><Text as="h2" variant="headingMd">My Earnings: ${stats.totalEarnings.toFixed(2)}</Text></Card>
-                    </Layout.Section>
-                    <Layout.Section>
-                        <Card>
-                            <Text as="h2" variant="headingMd">My Recoveries</Text>
-                            <DataTable columnContentTypes={["text", "text", "text", "text", "text", "text", "text"]} headings={["ID", "Customer", "Amount", "Status", "Contact", "QC", "Action"]} rows={checkoutRows} />
-                        </Card>
-                        <Box paddingBlock="400" />
-                        <Card>
-                            <Text as="h2" variant="headingMd">Marketplace</Text>
-                            <DataTable columnContentTypes={["text", "text", "text", "text", "text", "text"]} headings={["ID", "Customer", "Amount", "Status", "Date", "Action"]} rows={marketplaceRows} />
-                        </Card>
-                    </Layout.Section>
-                </Layout>
+                <BlockStack gap="500">
+                    {/* Stats Section */}
+                    <Layout>
+                        <Layout.Section>
+                            <Grid>
+                                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                                    <Card>
+                                        <Box padding="100">
+                                            <BlockStack gap="200">
+                                                <Text as="h2" variant="bodySm" tone="subdued">Total Earnings</Text>
+                                                <Text as="p" variant="headingLg" fontWeight="bold" tone="magic">${stats.totalEarnings.toFixed(2)}</Text>
+                                            </BlockStack>
+                                        </Box>
+                                    </Card>
+                                </Grid.Cell>
+                                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                                    <Card>
+                                        <Box padding="100">
+                                            <BlockStack gap="200">
+                                                <Text as="h2" variant="bodySm" tone="subdued">Recovery Rate</Text>
+                                                <Text as="p" variant="headingLg" fontWeight="bold" tone="success">{stats.recoveryRate.toFixed(1)}%</Text>
+                                            </BlockStack>
+                                        </Box>
+                                    </Card>
+                                </Grid.Cell>
+                                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                                    <Card>
+                                        <Box padding="100">
+                                            <BlockStack gap="200">
+                                                <Text as="h2" variant="bodySm" tone="subdued">Active Recoveries</Text>
+                                                <Text as="p" variant="headingLg" fontWeight="bold">{stats.totalCheckouts}</Text>
+                                            </BlockStack>
+                                        </Box>
+                                    </Card>
+                                </Grid.Cell>
+                                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                                    <Card>
+                                        <Box padding="100">
+                                            <BlockStack gap="200">
+                                                <Text as="h2" variant="bodySm" tone="subdued">Current Tier</Text>
+                                                <Badge tone="magic">{stats.tier}</Badge>
+                                            </BlockStack>
+                                        </Box>
+                                    </Card>
+                                </Grid.Cell>
+                            </Grid>
+                        </Layout.Section>
+                    </Layout>
+
+                    <Layout>
+                        <Layout.Section>
+                            <Card>
+                                <Box padding="400">
+                                    <BlockStack gap="400">
+                                        <Text as="h2" variant="headingMd">My Active Recoveries</Text>
+                                        {checkoutRows.length === 0 ? (
+                                            <Text as="p" tone="subdued">You haven't claimed any checkouts yet. Browse the marketplace to get started.</Text>
+                                        ) : (
+                                            <DataTable
+                                                columnContentTypes={["text", "text", "text", "text", "text", "text", "text"]}
+                                                headings={["ID", "Customer", "Amount", "Status", "Last Contact", "AI QC", "Action"]}
+                                                rows={checkoutRows}
+                                            />
+                                        )}
+                                    </BlockStack>
+                                </Box>
+                            </Card>
+                        </Layout.Section>
+
+                        <Layout.Section>
+                            <Card>
+                                <Box padding="400">
+                                    <BlockStack gap="400">
+                                        <InlineStack align="space-between">
+                                            <Text as="h2" variant="headingMd">Available in Marketplace</Text>
+                                            <Badge tone="new">Available</Badge>
+                                        </InlineStack>
+                                        <DataTable
+                                            columnContentTypes={["text", "text", "text", "text", "text", "text"]}
+                                            headings={["ID", "Customer", "Amount", "Status", "Detected", "Action"]}
+                                            rows={marketplaceRows}
+                                        />
+                                    </BlockStack>
+                                </Box>
+                            </Card>
+                        </Layout.Section>
+                    </Layout>
+                </BlockStack>
 
                 {selectedCheckout && (
                     <Modal open={modalActive} onClose={() => { setModalActive(false); setSelectedCheckout(null); }} title="Activity Log">

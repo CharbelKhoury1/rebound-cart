@@ -13,6 +13,8 @@ import {
   FormLayout,
   Checkbox,
   Box,
+  Banner,
+  Badge,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -40,7 +42,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const isMarketplaceEnabled = formData.get("isMarketplaceEnabled") === "true";
 
   try {
-    await db.shopSettings.upsert({
+    await (db.shopSettings as any).upsert({
       where: { shop },
       update: {
         commissionRate: commissionRate ? Number(commissionRate) : undefined,
@@ -72,6 +74,17 @@ export default function SettingsPage() {
 
       <BlockStack gap="500">
         <Layout>
+          {actionData && (
+            <Layout.Section>
+              <Banner
+                title={(actionData as any).success ? "Settings Saved" : "Save Failed"}
+                tone={(actionData as any).success ? "success" : "critical"}
+              >
+                <p>{(actionData as any).success ? (actionData as any).message : (actionData as any).error}</p>
+              </Banner>
+            </Layout.Section>
+          )}
+
           <Layout.Section>
             <Card>
               <BlockStack gap="400">
@@ -113,7 +126,7 @@ export default function SettingsPage() {
               <BlockStack gap="400">
                 <Text as="h2" variant="headingMd">Marketplace Summary</Text>
                 <Text as="p">
-                  Active in Marketplace: <strong>{marketplaceEnabled ? "YES" : "NO"}</strong>
+                  Active in Marketplace: <Badge tone={marketplaceEnabled ? "success" : "attention"}>{marketplaceEnabled ? "YES" : "NO"}</Badge>
                 </Text>
                 <Text as="p" tone="subdued">
                   Disabling marketplace access will hide your checkouts from all external representatives except those you manually assign.
@@ -122,21 +135,6 @@ export default function SettingsPage() {
             </Card>
           </Layout.Section>
         </Layout>
-
-        {/* Action Messages */}
-        {actionData && (
-          <Layout.Section>
-            {actionData.success ? (
-              <Box padding="400">
-                <Text tone="success" as="p">Settings updated successfully</Text>
-              </Box>
-            ) : (
-              <Box padding="400">
-                <Text tone="critical" as="p">{actionData.error || "Failed to update settings"}</Text>
-              </Box>
-            )}
-          </Layout.Section>
-        )}
       </BlockStack>
     </Page>
   );

@@ -15,6 +15,11 @@ import {
   EmptyState,
   Filters,
   Grid,
+  Modal,
+  DescriptionList,
+  Box,
+  Divider,
+  Link,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -132,16 +137,28 @@ export default function CheckoutsPage() {
   const { checkouts, stats } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
 
+  const [selectedCheckout, setSelectedCheckout] = useState<any>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
   const checkoutRows = checkouts.map((checkout) => [
-    checkout.checkoutId.slice(-8) + "…",
+    <Button variant="plain" onClick={() => { setSelectedCheckout(checkout); setIsModalOpen(true); }}>
+      {checkout.checkoutId.slice(-8) + "…"}
+    </Button>,
     checkout.email || "N/A",
     `${Number(checkout.totalPrice).toFixed(2)} ${checkout.currency}`,
-    <Badge tone={checkout.status === "RECOVERED" ? "success" : "attention"}>
+    <Badge key="status" tone={checkout.status === "RECOVERED" ? "success" : "attention"}>
       {checkout.status}
     </Badge>,
-    checkout.claimedBy
-      ? `${checkout.claimedBy.firstName || ""} ${checkout.claimedBy.lastName || ""}`.trim()
-      : <Badge tone="new">Waiting</Badge>,
+    checkout.claimedBy ? (
+      <InlineStack gap="100" blockAlign="center">
+        <Badge tone="info">Claimed</Badge>
+        <Text as="span" variant="bodySm">
+          {`${checkout.claimedBy.firstName || ""} ${checkout.claimedBy.lastName || ""}`.trim() || checkout.claimedBy.email}
+        </Text>
+      </InlineStack>
+    ) : (
+      <Badge tone="new">Marketplace</Badge>
+    ),
     new Date(checkout.createdAt).toLocaleDateString(),
   ]);
 
@@ -224,7 +241,7 @@ export default function CheckoutsPage() {
                 ) : (
                   <DataTable
                     columnContentTypes={["text", "text", "text", "text", "text", "text"]}
-                    headings={["Checkout ID", "Customer", "Amount", "Status", "Assigned Rep", "Detected On"]}
+                    headings={["ID", "Customer", "Amount", "Status", "Assignment", "Detected On"]}
                     rows={checkoutRows}
                     hoverable
                   />
@@ -234,6 +251,84 @@ export default function CheckoutsPage() {
           </Layout.Section>
         </Layout>
       </BlockStack>
+
+      {/* Checkout Details Modal */}
+      <Modal
+        open={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title="Checkout Details"
+        primaryAction={{
+          content: "Close",
+          onAction: () => setIsModalOpen(false),
+        }}
+        secondaryActions={[
+          {
+            content: "View on Shopify",
+            disabled: !selectedCheckout?.checkoutUrl,
+            onAction: () => {
+              if (selectedCheckout?.checkoutUrl) {
+                window.open(selectedCheckout.checkoutUrl, "_blank");
+              }
+            },
+          },
+        ]}
+      >
+        <Modal.Section>
+          {selectedCheckout && (
+            <BlockStack gap="400">
+              <DescriptionList
+                items={[
+                  {
+                    term: "Checkout ID",
+                    description: selectedCheckout.checkoutId,
+                  },
+                  {
+                    term: "Creation Date",
+                    description: new Date(selectedCheckout.createdAt).toLocaleString(),
+                  },
+                  {
+                    term: "Customer Email",
+                    description: selectedCheckout.email || "No email provided",
+                  },
+                  {
+                    term: "Total Value",
+                    description: `${Number(selectedCheckout.totalPrice).toFixed(2)} ${selectedCheckout.currency}`,
+                  },
+                  {
+                    term: "Current Status",
+                    description: (
+                      <Badge tone={selectedCheckout.status === "RECOVERED" ? "success" : "attention"}>
+                        {selectedCheckout.status}
+                      </Badge>
+                    ),
+                  },
+                  {
+                    term: "Recovery URL",
+                    description: selectedCheckout.checkoutUrl ? (
+                      <Link url={selectedCheckout.checkoutUrl} target="_blank">
+                        {selectedCheckout.checkoutUrl}
+                      </Link>
+                    ) : "N/A",
+                  },
+                ]}
+              />
+
+              <Divider />
+
+              <BlockStack gap="200">
+                <Text as="h3" variant="headingSm">Assignment Info</Text>
+                {selectedCheckout.claimedBy ? (
+                  <Text as="p">
+                    Assigned to: <strong>{`${selectedCheckout.claimedBy.firstName || ""} ${selectedCheckout.claimedBy.lastName || ""}`.trim()}</strong> ({selectedCheckout.claimedBy.email})
+                  </Text>
+                ) : (
+                  <Text as="p" tone="subdued">This checkout is currently available in the marketplace for any authorized representative to claim.</Text>
+                )}
+              </BlockStack>
+            </BlockStack>
+          )}
+        </Modal.Section>
+      </Modal>
     </Page>
   );
 }
