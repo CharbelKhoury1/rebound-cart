@@ -47,7 +47,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
   const totalCommissionPaid = commissions.reduce((sum: number, c: any) => sum + Number(c.commissionAmount), 0);
 
-  // 3. Get recent checkouts and sales reps
+  // 3. Get recent checkouts, sales reps, and platform users
   const recentCheckouts = await db.abandonedCheckout.findMany({
     where: { shop },
     orderBy: { createdAt: "desc" },
@@ -56,7 +56,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
 
   const salesReps = await db.salesRep.findMany({
-    where: {}, // Get all reps for now, could be filtered by shop in future
+    orderBy: { createdAt: "desc" },
+    take: 5,
+  });
+
+  const platformUsers = await db.platformUser.findMany({
     orderBy: { createdAt: "desc" },
     take: 5,
   });
@@ -121,6 +125,32 @@ export default function Index() {
     rep.email,
     <Badge tone={rep.role === "ADMIN" ? "info" as const : "success" as const}>{rep.role}</Badge>,
     new Date(rep.createdAt).toLocaleDateString(),
+  ]);
+
+  const platformUserRows = platformUsers.map((user: any) => [
+    `${user.firstName} ${user.lastName}`,
+    user.email,
+    <Badge tone={user.role === "PLATFORM_ADMIN" ? "info" as const : "success" as const}>
+      {user.role}
+    </Badge>,
+    <Badge tone={
+      user.tier === "PLATINUM" ? "magic" as const :
+      user.tier === "GOLD" ? "warning" as const :
+      user.tier === "SILVER" ? "attention" as const :
+      "new" as const
+    }>
+      {user.tier || "BRONZE"}
+    </Badge>,
+    <Badge tone={user.status === "ACTIVE" ? "success" as const : user.status === "SUSPENDED" ? "warning" as const : "critical" as const}>
+      {user.status}
+    </Badge>,
+    user.claimedCheckouts?.length.toString() || "0",
+    user.commissions?.reduce((sum: number, c: any) => sum + Number(c.commissionAmount), 0).toFixed(2) || "0.00",
+    new Date(user.createdAt).toLocaleDateString(),
+    <InlineStack gap="200">
+      <Button size="slim" variant="plain">Edit</Button>
+      <Button size="slim" variant="plain" tone="critical">Suspend</Button>
+    </InlineStack>,
   ]);
 
   return (
@@ -198,6 +228,7 @@ export default function Index() {
               <BlockStack gap="400">
                 <Text as="h2" variant="headingMd">Quick Actions</Text>
                 <Button variant="plain" fullWidth textAlign="left" url="/app/sales-reps">Manage Sales Reps</Button>
+                <Button variant="plain" fullWidth textAlign="left" url="/app/platform-users">Platform Users</Button>
                 <Button variant="plain" fullWidth textAlign="left" url="/app/checkouts">View All Checkouts</Button>
                 <Button variant="plain" fullWidth textAlign="left">Export Reports</Button>
               </BlockStack>
@@ -228,6 +259,21 @@ export default function Index() {
                   columnContentTypes={["text", "text", "text", "text"]}
                   headings={["Name", "Email", "Role", "Joined"]}
                   rows={repRows}
+                  hoverable
+                />
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+
+          {/* Platform Users Table */}
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">Platform Users</Text>
+                <DataTable
+                  columnContentTypes={["text", "text", "text", "text", "text", "text", "text", "text"]}
+                  headings={["Name", "Email", "Role", "Tier", "Status", "Checkouts", "Commissions", "Joined", "Actions"]}
+                  rows={platformUserRows}
                   hoverable
                 />
               </BlockStack>

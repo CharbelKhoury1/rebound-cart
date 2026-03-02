@@ -31,6 +31,7 @@ model Session {
   emailVerified       Boolean?  @default(false)
   refreshToken        String?
   refreshTokenExpires DateTime?
+  role                String?    @default("STORE_OWNER") // "STORE_OWNER", "PLATFORM_ADMIN", "SALES_REP"
 }
 
 model SalesRep {
@@ -41,8 +42,6 @@ model SalesRep {
   role              String              @default("REP") // "ADMIN", "REP"
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
-  claimedCheckouts AbandonedCheckout[]
-  commissions       Commission[]
 }
 
 model AbandonedCheckout {
@@ -56,15 +55,17 @@ model AbandonedCheckout {
   currency      String
   checkoutUrl   String?
   status        String      @default("ABANDONED") // "ABANDONED", "RECOVERED"
-  claimedBy     SalesRep?   @relation(fields: [claimedById], references: [id])
+  claimedBy     PlatformUser?   @relation(fields: [claimedById], references: [id])
   claimedById   String?
   claimedAt     DateTime?
   orderId       String?     @unique
   commission    Commission?
+  platformFee   Decimal?    @default(0) // Platform fee (e.g., 5%)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
   @@index([shop])
+  @@index([claimedById])
 }
 
 model Commission {
@@ -73,10 +74,11 @@ model Commission {
   orderNumber      String?
   totalAmount      Decimal
   commissionAmount Decimal
+  platformFee      Decimal?           @default(0) // Platform fee from this commission
   status           String            @default("PENDING") // "PENDING", "PAID"
   checkout         AbandonedCheckout @relation(fields: [checkoutId], references: [id])
   checkoutId       String            @unique
-  rep              SalesRep          @relation(fields: [repId], references: [id])
+  rep              PlatformUser      @relation(fields: [repId], references: [id])
   repId            String
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -88,4 +90,30 @@ model ShopSettings {
   commissionRate Decimal  @default(10.0) // Percentage
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+}
+
+model PlatformUser {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  firstName     String?
+  lastName      String?
+  role          String    @default("SALES_REP") // "PLATFORM_ADMIN", "SALES_REP"
+  status        String    @default("ACTIVE") // "ACTIVE", "INACTIVE", "SUSPENDED"
+  tier          String?   @default("BRONZE") // "BRONZE", "SILVER", "GOLD", "PLATINUM"
+  commissionRate Decimal? // Override platform default
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  claimedCheckouts AbandonedCheckout[]
+  commissions    Commission[]
+}
+
+model AssignmentRule {
+  id                String    @id @default(uuid())
+  name              String
+  description       String?
+  conditions         Json?     // Store conditions for assignment
+  isActive          Boolean   @default(true)
+  createdBy         String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 }
