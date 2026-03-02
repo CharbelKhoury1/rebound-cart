@@ -37,7 +37,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           edges {
             node {
               id
-              email
+              customer {
+                email
+              }
               totalPriceSet {
                 presentmentMoney {
                   amount
@@ -58,18 +60,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     for (const edge of abandonedCheckouts) {
       const node = edge.node;
       const checkoutId = node.id.split("/").pop(); // Get numeric ID from GID
+      const customerEmail = node.customer?.email || null;
 
       await db.abandonedCheckout.upsert({
         where: { checkoutId: String(checkoutId) },
         update: {
           totalPrice: node.totalPriceSet.presentmentMoney.amount,
           currency: node.totalPriceSet.presentmentMoney.currencyCode,
-          email: node.email,
+          email: customerEmail,
         },
         create: {
           shop,
           checkoutId: String(checkoutId),
-          email: node.email,
+          email: customerEmail,
           totalPrice: node.totalPriceSet.presentmentMoney.amount,
           currency: node.totalPriceSet.presentmentMoney.currencyCode,
           checkoutUrl: node.abandonedCheckoutUrl,
