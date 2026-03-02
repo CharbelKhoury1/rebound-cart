@@ -14,6 +14,8 @@ import {
   TextField,
   Select,
   FormLayout,
+  Divider,
+  Box,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
@@ -22,19 +24,18 @@ import { useState } from "react";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   // For now, use a mock rep - in real implementation, this would use JWT auth
   const mockRepEmail = "rep@reboundcart.com";
-  
+
   // Get sales rep data
   const salesRep = await db.platformUser.findUnique({
     where: { email: mockRepEmail },
     include: {
       claimedCheckouts: {
         where: { status: "ABANDONED" },
-        orderBy: { createdAt: "desc" },
-        take: 10,
+        orderBy: { updatedAt: "desc" },
+        include: { communications: { orderBy: { createdAt: "desc" } } },
       },
       commissions: {
         orderBy: { createdAt: "desc" },
-        take: 5,
       },
     },
   });
@@ -72,7 +73,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     try {
       await db.abandonedCheckout.update({
         where: { id: checkoutId },
-        data: { 
+        data: {
           claimedById: repEmail,
           claimedAt: new Date(),
         },
@@ -89,7 +90,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     try {
       await db.abandonedCheckout.update({
         where: { id: checkoutId },
-        data: { 
+        data: {
           claimedById: null,
           claimedAt: null,
         },
@@ -97,6 +98,59 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return json({ success: true, message: "Checkout unclaimed successfully" });
     } catch (error) {
       return json({ success: false, error: "Failed to unclaim checkout" }, { status: 500 });
+    }
+  }
+
+  if (intent === "logCommunication") {
+    const checkoutId = formData.get("checkoutId") as string;
+    const channel = formData.get("channel") as string;
+    const content = formData.get("content") as string;
+    const repEmail = "rep@reboundcart.com";
+
+    const rep = await db.platformUser.findUnique({ where: { email: repEmail } });
+    if (!rep) return json({ success: false, error: "Rep not found" }, { status: 404 });
+
+    // Mock AI Assessment Logic
+    const words = content.split(" ").length;
+    let sentiment = "Neutral";
+    let score = 70;
+    let feedback = "Good initial contact. Try to create more urgency.";
+
+    if (content.toLowerCase().includes("urgent") || content.toLowerCase().includes("limited")) {
+      score += 15;
+      feedback = "Excellent use of scarcity and urgency.";
+    }
+    if (words > 20) {
+      score += 10;
+      sentiment = "Positive";
+    }
+    if (content.length < 10) {
+      score = 40;
+      feedback = "Communication too short. Provide more value.";
+      sentiment = "Negative";
+    }
+
+    try {
+      await db.$transaction([
+        db.communication.create({
+          data: {
+            checkoutId,
+            repId: rep.id,
+            channel,
+            content,
+            qcScore: Math.min(score, 100),
+            qcFeedback: feedback,
+            sentiment,
+          },
+        }),
+        db.abandonedCheckout.update({
+          where: { id: checkoutId },
+          data: { lastContactedAt: new Date() },
+        }),
+      ]);
+      return json({ success: true, message: "Communication logged and assessed by AI" });
+    } catch (error) {
+      return json({ success: false, error: "Failed to log communication" }, { status: 500 });
     }
   }
 
@@ -109,30 +163,34 @@ export default function RepDashboard() {
   const [selectedCheckout, setSelectedCheckout] = useState<any>(null);
   const [modalActive, setModalActive] = useState(false);
   const fetcher = useFetcher();
+  const isSubmitting = fetcher.state === "submitting";
 
-  const checkoutRows = salesRep.claimedCheckouts?.map((checkout: any) => [
-    checkout.checkoutId.slice(-8) + "...",
-    checkout.email || "N/A",
-    `${checkout.totalPrice} ${checkout.currency}`,
-    <Badge tone={checkout.status === "RECOVERED" ? "success" : "attention"}>
-      {checkout.status}
-    </Badge>,
-    new Date(checkout.createdAt).toLocaleDateString(),
-    <InlineStack gap="200">
-      <Button size="slim" variant="plain" onClick={() => {
-        setSelectedCheckout(checkout);
-        setModalActive(true);
-      }}>View</Button>
-      {checkout.status === "ABANDONED" && (
+  const checkoutRows = salesRep.claimedCheckouts?.map((checkout: any) => {
+    const avgScore = checkout.communications?.length > 0
+      ? Math.round(checkout.communications.reduce((sum: number, c: any) => sum + (c.qcScore || 0), 0) / checkout.communications.length)
+      : null;
+
+    return [
+      checkout.checkoutId.slice(-8) + "...",
+      checkout.email || "N/A",
+      `${checkout.totalPrice} ${checkout.currency}`,
+      <Badge tone={checkout.status === "RECOVERED" ? "success" : "attention"}>
+        {checkout.status}
+      </Badge>,
+      checkout.lastContactedAt ? new Date(checkout.lastContactedAt).toLocaleDateString() : "Never",
+      avgScore !== null ? (
+        <Badge tone={avgScore >= 80 ? "success" : avgScore >= 60 ? "warning" : "critical"}>
+          {`${avgScore}%`}
+        </Badge>
+      ) : "N/A",
+      <InlineStack gap="200">
         <Button size="slim" variant="plain" onClick={() => {
-          fetcher.submit(
-            { intent: "claimCheckout", checkoutId: checkout.id },
-            { method: "POST" }
-          );
-        }}>Claim</Button>
-      )}
-    </InlineStack>,
-  ]) || [];
+          setSelectedCheckout(checkout);
+          setModalActive(true);
+        }}>View & Log</Button>
+      </InlineStack>,
+    ];
+  }) || [];
 
   const commissionRows = salesRep.commissions?.map((commission: any) => [
     commission.orderNumber || commission.orderId.slice(-8) + "...",
@@ -146,7 +204,7 @@ export default function RepDashboard() {
   return (
     <Page>
       <TitleBar title="Sales Rep Dashboard" />
-      
+
       <BlockStack gap="500">
         <Layout>
           {/* Rep Profile & Stats */}
@@ -232,39 +290,101 @@ export default function RepDashboard() {
             setModalActive(false);
             setSelectedCheckout(null);
           }}
-          title="Checkout Details"
-          primaryAction={{
-            content: "Close",
-            onAction: () => {
-              setModalActive(false);
-              setSelectedCheckout(null);
+          title="Checkout Recovery Workspace"
+          secondaryActions={[
+            {
+              content: "Close",
+              onAction: () => {
+                setModalActive(false);
+                setSelectedCheckout(null);
+              },
             },
-          }}
+          ]}
         >
           <Modal.Section>
-            <BlockStack gap="400">
-              <Text as="h3" variant="headingMd">Checkout Information</Text>
-              <BlockStack gap="200">
-                <Text as="p" variant="bodyMd">
-                  <strong>Checkout ID:</strong> {selectedCheckout.checkoutId}
-                </Text>
-                <Text as="p" variant="bodyMd">
-                  <strong>Customer Email:</strong> {selectedCheckout.email || "N/A"}
-                </Text>
-                <Text as="p" variant="bodyMd">
-                  <strong>Amount:</strong> {selectedCheckout.totalPrice} {selectedCheckout.currency}
-                </Text>
-                <Text as="p" variant="bodyMd">
-                  <strong>Status:</strong> {selectedCheckout.status}
-                </Text>
-                <Text as="p" variant="bodyMd">
-                  <strong>Created:</strong> {new Date(selectedCheckout.createdAt).toLocaleDateString()}
-                </Text>
-                {selectedCheckout.checkoutUrl && (
-                  <Text as="p" variant="bodyMd">
-                    <strong>Checkout URL:</strong> 
-                    <Button variant="plain" url={selectedCheckout.checkoutUrl}>View Original Checkout</Button>
-                  </Text>
+            <BlockStack gap="500">
+              <Layout>
+                <Layout.Section>
+                  <BlockStack gap="400">
+                    <Text as="h3" variant="headingMd">Log New Activity</Text>
+                    <fetcher.Form method="POST">
+                      <input type="hidden" name="intent" value="logCommunication" />
+                      <input type="hidden" name="checkoutId" value={selectedCheckout.id} />
+                      <FormLayout>
+                        <Select
+                          label="Contact Channel"
+                          name="channel"
+                          options={[
+                            { label: "WhatsApp", value: "WhatsApp" },
+                            { label: "Email", value: "Email" },
+                            { label: "Phone Call", value: "Phone" },
+                            { label: "SMS", value: "SMS" },
+                          ]}
+                          value="WhatsApp"
+                        />
+                        <TextField
+                          label="Communication Notes / Content"
+                          name="content"
+                          multiline={3}
+                          autoComplete="off"
+                          placeholder="Summarize what you said or paste the message here..."
+                        />
+                        <Button submit variant="primary" loading={isSubmitting}>
+                          Log & Assess Quality
+                        </Button>
+                      </FormLayout>
+                    </fetcher.Form>
+                  </BlockStack>
+                </Layout.Section>
+
+                <Layout.Section variant="oneThird">
+                  <BlockStack gap="400">
+                    <Text as="h3" variant="headingMd">Customer Info</Text>
+                    <BlockStack gap="200">
+                      <Text as="p" variant="bodyMd"><strong>Email:</strong> {selectedCheckout.email || "N/A"}</Text>
+                      <Text as="p" variant="bodyMd"><strong>Value:</strong> {selectedCheckout.totalPrice} {selectedCheckout.currency}</Text>
+                      {selectedCheckout.checkoutUrl && (
+                        <Button variant="plain" url={selectedCheckout.checkoutUrl} external>View Checkout →</Button>
+                      )}
+                    </BlockStack>
+                  </BlockStack>
+                </Layout.Section>
+              </Layout>
+
+              <Divider />
+
+              <BlockStack gap="400">
+                <Text as="h3" variant="headingMd">Communication History & QC</Text>
+                {selectedCheckout.communications?.length === 0 ? (
+                  <Text as="p" tone="subdued">No activity logged yet.</Text>
+                ) : (
+                  <BlockStack gap="300">
+                    {selectedCheckout.communications?.map((comm: any) => (
+                      <Card key={comm.id} roundedAbove="sm">
+                        <BlockStack gap="200">
+                          <InlineStack align="space-between">
+                            <InlineStack gap="200">
+                              <Badge tone="info">{comm.channel}</Badge>
+                              <Text as="span" variant="bodySm" tone="subdued">
+                                {new Date(comm.createdAt).toLocaleString()}
+                              </Text>
+                            </InlineStack>
+                            <Badge tone={comm.qcScore >= 80 ? "success" : comm.qcScore >= 60 ? "warning" : "critical"}>
+                              {`QC Score: ${comm.qcScore}%`}
+                            </Badge>
+                          </InlineStack>
+                          <Text as="p" variant="bodyMd">{comm.content}</Text>
+                          {comm.qcFeedback && (
+                            <Box padding="200" background="bg-surface-secondary" borderRadius="200">
+                              <Text as="p" variant="bodySm" tone="magic">
+                                <strong>AI Feedback:</strong> {comm.qcFeedback}
+                              </Text>
+                            </Box>
+                          )}
+                        </BlockStack>
+                      </Card>
+                    ))}
+                  </BlockStack>
                 )}
               </BlockStack>
             </BlockStack>

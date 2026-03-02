@@ -22,19 +22,23 @@ import db from "../db.server";
    ============================================================ */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const { session } = await authenticate.admin(request);
-    const shop = session.shop;
 
-    // ── Checkout stats ──────────────────────────────────────────
-    const totalAbandoned = await db.abandonedCheckout.count({ where: { shop } });
-    const totalRecovered = await db.abandonedCheckout.count({ where: { shop, status: "RECOVERED" } });
-    const totalUnclaimed = await db.abandonedCheckout.count({ where: { shop, claimedById: null } });
-    const totalClaimed = await db.abandonedCheckout.count({ where: { shop, claimedById: { not: null } } });
+    // Platform admin access control
+    const PLATFORM_ADMIN_EMAIL = process.env.PLATFORM_ADMIN_EMAIL || "admin@reboundcart.com";
+    if ((session as any).email !== PLATFORM_ADMIN_EMAIL) {
+        throw new Response("Unauthorized: Platform admin access required", { status: 403 });
+    }
+
+    // ── Checkout stats (Platform-wide) ──────────────────────────
+    const totalAbandoned = await db.abandonedCheckout.count();
+    const totalRecovered = await db.abandonedCheckout.count({ where: { status: "RECOVERED" } });
+    const totalUnclaimed = await db.abandonedCheckout.count({ where: { claimedById: null } });
+    const totalClaimed = await db.abandonedCheckout.count({ where: { claimedById: { not: null } } });
     const recoveryRate = totalAbandoned > 0 ? (totalRecovered / totalAbandoned) * 100 : 0;
     const claimRate = totalAbandoned > 0 ? (totalClaimed / totalAbandoned) * 100 : 0;
 
-    // ── Revenue stats ────────────────────────────────────────────
+    // ── Revenue stats (Platform-wide) ────────────────────────────
     const allCommissions = await db.commission.findMany({
-        where: { checkout: { shop } },
         select: { commissionAmount: true, totalAmount: true, platformFee: true, status: true },
     });
 
@@ -43,16 +47,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const totalPlatformFees = allCommissions.reduce((s, c) => s + Number(c.platformFee ?? 0), 0);
     const avgOrderValue = allCommissions.length > 0 ? totalRevenue / allCommissions.length : 0;
 
-    // ── Top performers ───────────────────────────────────────────
+    // ── Top performers (Platform-wide) ───────────────────────────
     const topPerformers = await db.platformUser.findMany({
         where: { status: "ACTIVE" },
         include: {
             claimedCheckouts: {
-                where: { shop, status: "RECOVERED" },
+                where: { status: "RECOVERED" },
                 select: { id: true },
             },
             commissions: {
-                where: { checkout: { shop } },
                 select: { commissionAmount: true, status: true },
             },
         },
@@ -74,9 +77,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         .sort((a, b) => b.recoveries - a.recoveries)
         .slice(0, 10);
 
-    // ── Claimed checkouts by rep (all, not just recovered) ──────
+    // ── Claimed checkouts by rep (Platform-wide) ────────────────
     const allClaimedCheckouts = await db.abandonedCheckout.findMany({
-        where: { shop, claimedById: { not: null } },
+        where: { claimedById: { not: null } },
         include: {
             claimedBy: { select: { id: true, firstName: true, lastName: true, tier: true } },
         },
@@ -105,12 +108,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         }))
         .sort((a, b) => b.rate - a.rate);
 
-    // ── Monthly breakdown (last 6 months) ────────────────────────
+    // ── Monthly breakdown (last 6 months - Platform-wide) ────────
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
     const recentCheckouts = await db.abandonedCheckout.findMany({
-        where: { shop, createdAt: { gte: sixMonthsAgo } },
+        where: { createdAt: { gte: sixMonthsAgo } },
         select: { createdAt: true, status: true },
     });
 
@@ -134,7 +137,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             rate: data.abandoned > 0 ? (data.recovered / data.abandoned) * 100 : 0,
         }));
 
-    // ── Platform health ───────────────────────────────────────────
+    // ── Platform health (Platform-wide) ───────────────────────────
     const totalActiveReps = await db.platformUser.count({ where: { status: "ACTIVE", role: "SALES_REP" } });
     const totalPendingReps = await db.platformUser.count({ where: { status: "PENDING" } });
     const unclaimedAbandoned = totalUnclaimed;
@@ -167,6 +170,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     });
 };
 
+
 /* ============================================================
    HELPERS
    ============================================================ */
@@ -195,7 +199,8 @@ export default function AnalyticsPage() {
     /* ── Health alerts ── */
     const hasAlerts =
         platformHealth.unclaimedAbandoned > 10 ||
-        platformHealth.avgRecoveryRate < 15;
+        platformHealth.avgRecoveryRate < 15 ||
+        platformHealth.totalPendingReps > 0;
 
     /* ── Top performer rows ── */
     const performerRows = performers.map((p, i) => [
@@ -263,25 +268,35 @@ export default function AnalyticsPage() {
             <TitleBar title="Analytics & Insights" />
 
             <BlockStack gap="500">
-                {/* ── Health Alerts (Store Centric) ── */}
+                {/* ── Health Alerts ── */}
                 {hasAlerts && (
                     <Layout>
                         <Layout.Section>
                             <BlockStack gap="300">
                                 {platformHealth.unclaimedAbandoned > 10 && (
-                                    <Banner tone="warning" title="Items Awaiting Recovery">
+                                    <Banner tone="warning" title="Unclaimed Checkouts Alert">
                                         <p>
-                                            <strong>{platformHealth.unclaimedAbandoned}</strong> checkouts are
-                                            detected but not yet claimed by a representative.
+                                            <strong>{platformHealth.unclaimedAbandoned}</strong> abandoned checkouts are
+                                            currently unclaimed. Assign them to active sales reps to start the recovery
+                                            process.
                                         </p>
                                     </Banner>
                                 )}
                                 {platformHealth.avgRecoveryRate < 15 && checkoutStats.totalAbandoned > 0 && (
-                                    <Banner tone="critical" title="Recovery Rate Opportunity">
+                                    <Banner tone="critical" title="Recovery Rate Below Target">
                                         <p>
                                             Your current recovery rate is{" "}
-                                            <strong>{pct(platformHealth.avgRecoveryRate)}</strong>. Improving response
-                                            times can help convert more abandoned carts.
+                                            <strong>{pct(platformHealth.avgRecoveryRate)}</strong>, below the{" "}
+                                            <strong>15% minimum target</strong>. Consider reviewing rep performance and
+                                            checkout assignment speed.
+                                        </p>
+                                    </Banner>
+                                )}
+                                {platformHealth.totalPendingReps > 0 && (
+                                    <Banner tone="info" title="Pending Applications">
+                                        <p>
+                                            <strong>{platformHealth.totalPendingReps}</strong> sales rep application(s)
+                                            are awaiting review. Approving more reps can improve checkout coverage.
                                         </p>
                                     </Banner>
                                 )}
@@ -494,6 +509,60 @@ export default function AnalyticsPage() {
                     </Layout>
                 )}
 
+                {/* ── Platform Health Summary ── */}
+                <Layout>
+                    <Layout.Section variant="oneThird">
+                        <Card>
+                            <BlockStack gap="400">
+                                <Text as="h3" variant="headingMd">Platform Health</Text>
+                                <BlockStack gap="300">
+                                    {[
+                                        {
+                                            label: "Active Sales Reps",
+                                            value: platformHealth.totalActiveReps.toString(),
+                                            ok: platformHealth.totalActiveReps >= 5,
+                                            okMsg: "Good coverage",
+                                            warnMsg: "Need more reps",
+                                        },
+                                        {
+                                            label: "Pending Applications",
+                                            value: platformHealth.totalPendingReps.toString(),
+                                            ok: platformHealth.totalPendingReps === 0,
+                                            okMsg: "All reviewed",
+                                            warnMsg: "Needs review",
+                                        },
+                                        {
+                                            label: "Unclaimed Checkouts",
+                                            value: platformHealth.unclaimedAbandoned.toString(),
+                                            ok: platformHealth.unclaimedAbandoned <= 5,
+                                            okMsg: "Under control",
+                                            warnMsg: "Assign to reps",
+                                        },
+                                        {
+                                            label: "Recovery Rate",
+                                            value: pct(platformHealth.avgRecoveryRate),
+                                            ok: platformHealth.avgRecoveryRate >= 15,
+                                            okMsg: "Above minimum",
+                                            warnMsg: "Below 15% target",
+                                        },
+                                    ].map(({ label, value, ok, okMsg, warnMsg }) => (
+                                        <div key={label} style={{ padding: "8px 0", borderBottom: "1px solid var(--p-color-border)" }}>
+                                            <InlineStack align="space-between">
+                                                <BlockStack gap="100">
+                                                    <Text as="p" variant="bodySm" tone="subdued">{label}</Text>
+                                                    <Text as="p" variant="bodyMd" fontWeight="bold">{value}</Text>
+                                                </BlockStack>
+                                                <Badge tone={ok ? "success" : "warning"}>
+                                                    {ok ? okMsg : warnMsg}
+                                                </Badge>
+                                            </InlineStack>
+                                        </div>
+                                    ))}
+                                </BlockStack>
+                            </BlockStack>
+                        </Card>
+                    </Layout.Section>
+                </Layout>
             </BlockStack>
         </Page>
     );

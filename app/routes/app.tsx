@@ -10,25 +10,41 @@ import { authenticate } from "../shopify.server";
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
 
-  return { 
+  const PLATFORM_ADMIN_EMAIL = process.env.PLATFORM_ADMIN_EMAIL || "admin@reboundcart.com";
+  const isPlatformAdmin = (session as any).email === PLATFORM_ADMIN_EMAIL;
+
+  return {
     apiKey: process.env.SHOPIFY_API_KEY || "",
-    // For now, assume store owner - platform admin will use separate routes
-    isPlatformAdmin: false,
+    isPlatformAdmin,
   };
 };
 
 export default function App() {
-  const { apiKey } = useLoaderData<typeof loader>();
+  const { apiKey, isPlatformAdmin } = useLoaderData<typeof loader>();
 
   return (
     <AppProvider isEmbeddedApp apiKey={apiKey}>
       <NavMenu>
         <Link to="/app" rel="home">Dashboard</Link>
-        <Link to="/app/checkouts">My Checkouts</Link>
-        <Link to="/app/analytics">Recovery Analytics</Link>
-        <Link to="/app/settings">Store Settings</Link>
+        {isPlatformAdmin ? (
+          <>
+            <Link to="/app/platform-admin">Admin Home</Link>
+            <Link to="/app/platform-admin/users">Users</Link>
+            <Link to="/app/platform-admin/approvals">Approvals</Link>
+            <Link to="/app/platform-admin/commissions">Commissions</Link>
+            <Link to="/app/platform-admin/analytics">Global Analytics</Link>
+            <Link to="/app/platform-admin/checkouts">All Checkouts</Link>
+          </>
+        ) : (
+          <>
+            <Link to="/app/checkouts">My Checkouts</Link>
+            <Link to="/app/analytics">Recovery Analytics</Link>
+            <Link to="/app/payouts">My Payouts</Link>
+            <Link to="/app/settings">Store Settings</Link>
+          </>
+        )}
       </NavMenu>
       <Outlet />
     </AppProvider>

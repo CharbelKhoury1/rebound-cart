@@ -61,11 +61,32 @@ model AbandonedCheckout {
   orderId       String?     @unique
   commission    Commission?
   platformFee   Decimal?    @default(0) // Platform fee (e.g., 5%)
+  lastContactedAt DateTime?  // Track last rep activity
+  communications  Communication[]
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
   @@index([shop])
   @@index([claimedById])
+}
+
+model Communication {
+  id              String            @id @default(uuid())
+  checkout        AbandonedCheckout @relation(fields: [checkoutId], references: [id])
+  checkoutId      String
+  rep             PlatformUser      @relation(fields: [repId], references: [id])
+  repId           String
+  channel         String            // "WhatsApp", "Email", "Phone", "SMS"
+  content         String?           // Message summary
+  qcScore         Float?            // 0-100 (AI generated)
+  qcFeedback      String?           // AI suggestions
+  sentiment       String?           // Positive, Neutral, Negative
+  customerRating  Int?              // 1-5 (customer survey)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([checkoutId])
+  @@index([repId])
 }
 
 model Commission {
@@ -108,6 +129,7 @@ model PlatformUser {
   updatedAt     DateTime  @updatedAt
   claimedCheckouts AbandonedCheckout[]
   commissions    Commission[]
+  communications Communication[]
 }
 
 model AssignmentRule {

@@ -47,6 +47,19 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
   const totalCommissionPaid = commissions.reduce((sum: number, c: any) => sum + Number(c.commissionAmount), 0);
 
+  // Calculate Revenue Recovered This Month
+  const now = new Date();
+  const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const recoveredThisMonthCheckouts = await db.abandonedCheckout.findMany({
+    where: {
+      shop,
+      status: "RECOVERED",
+      updatedAt: { gte: firstDayOfMonth }
+    },
+    select: { totalPrice: true }
+  });
+  const revenueRecoveredMonth = recoveredThisMonthCheckouts.reduce((sum, c) => sum + Number(c.totalPrice), 0);
+
   // 3. Get recent checkouts for THIS STORE ONLY
   const recentCheckouts = await db.abandonedCheckout.findMany({
     where: { shop },
@@ -55,14 +68,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     include: { claimedBy: true },
   });
 
-  // Store owner should NOT see platform users or other stores' data
   return json({
     settings,
     stats: {
       totalAbandoned,
       totalRecovered,
       recoveryRate: totalAbandoned > 0 ? (totalRecovered / totalAbandoned) * 100 : 0,
-      totalCommissionPaid, // What this store has paid out
+      totalCommissionPaid,
+      revenueRecoveredMonth,
     },
     recentCheckouts,
   });
@@ -145,11 +158,20 @@ export default function Index() {
                   </BlockStack>
                 </Card>
               </Grid.Cell>
-              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
+                <Card>
+                  <BlockStack gap="200">
+                    <Text as="h2" variant="headingSm" tone="subdued">Revenue Recovered (MTD)</Text>
+                    <Text as="p" variant="headingLg" fontWeight="bold" tone="magic">${stats.revenueRecoveredMonth.toFixed(2)}</Text>
+                    <Text as="p" variant="bodySm" tone="subdued">Month to date earnings</Text>
+                  </BlockStack>
+                </Card>
+              </Grid.Cell>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
                 <Card>
                   <BlockStack gap="200">
                     <Text as="h2" variant="headingSm" tone="subdued">Commission Paid</Text>
-                    <Text as="p" variant="headingLg" fontWeight="bold" tone="magic">${stats.totalCommissionPaid.toFixed(2)}</Text>
+                    <Text as="p" variant="headingLg" fontWeight="bold">${stats.totalCommissionPaid.toFixed(2)}</Text>
                     <Text as="p" variant="bodySm" tone="subdued">Total to sales reps</Text>
                   </BlockStack>
                 </Card>
@@ -157,33 +179,11 @@ export default function Index() {
             </Grid>
           </Layout.Section>
 
-          {/* Enhanced Settings Section */}
+          {/* Quick Actions Section */}
           <Layout.Section variant="oneThird">
             <Card>
-              <fetcher.Form method="POST">
-                <BlockStack gap="400">
-                  <Text as="h2" variant="headingMd">Commission Settings</Text>
-                  <TextField
-                    label="Commission Rate (%)"
-                    name="commissionRate"
-                    type="number"
-                    value={settings.commissionRate.toString()}
-                    autoComplete="off"
-                    suffix="%"
-                    onChange={() => { }}
-                    error={actionData && 'error' in actionData ? actionData.error : undefined}
-                    helpText="Set the commission percentage for sales reps"
-                  />
-                  <Button submit variant="primary" size="large">Update Rate</Button>
-                </BlockStack>
-              </fetcher.Form>
-            </Card>
-
-            <Divider />
-
-            <Card>
               <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">Store Actions</Text>
+                <Text as="h2" variant="headingMd">Quick Actions</Text>
                 <Button variant="plain" fullWidth textAlign="left" url="/app/checkouts">View My Checkouts</Button>
                 <Button variant="plain" fullWidth textAlign="left" url="/app/analytics">Recovery Analytics</Button>
                 <Button variant="plain" fullWidth textAlign="left" url="/app/settings">Store Settings</Button>
@@ -191,7 +191,7 @@ export default function Index() {
             </Card>
           </Layout.Section>
 
-          {/* Enhanced Recent Checkouts Table */}
+          {/* Recent Checkouts Table */}
           <Layout.Section>
             <Card>
               <BlockStack gap="400">

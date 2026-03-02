@@ -23,7 +23,13 @@ import db from "../db.server";
 import { useState } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
+
+  // Platform admin access control
+  const PLATFORM_ADMIN_EMAIL = process.env.PLATFORM_ADMIN_EMAIL || "admin@reboundcart.com";
+  if ((session as any).email !== PLATFORM_ADMIN_EMAIL) {
+    throw new Response("Unauthorized: Platform admin access required", { status: 403 });
+  }
 
   const platformUsers = await db.platformUser.findMany({
     orderBy: { createdAt: "desc" },
@@ -44,7 +50,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
+  const PLATFORM_ADMIN_EMAIL = process.env.PLATFORM_ADMIN_EMAIL || "admin@reboundcart.com";
+  if ((session as any).email !== PLATFORM_ADMIN_EMAIL) {
+    throw new Response("Unauthorized", { status: 403 });
+  }
+
   const formData = await request.formData();
   const intent = formData.get("intent");
 

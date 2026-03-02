@@ -29,7 +29,13 @@ import { useState } from "react";
    LOADER — load all commissions with rep and checkout data
    ============================================================ */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-    await authenticate.admin(request);
+    const { session } = await authenticate.admin(request);
+
+    // Platform admin access control
+    const PLATFORM_ADMIN_EMAIL = process.env.PLATFORM_ADMIN_EMAIL || "admin@reboundcart.com";
+    if ((session as any).email !== PLATFORM_ADMIN_EMAIL) {
+        throw new Response("Unauthorized: Platform admin access required", { status: 403 });
+    }
 
     const commissions = await db.commission.findMany({
         orderBy: { createdAt: "desc" },
@@ -108,7 +114,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
    ACTION — mark commissions as paid / bulk payout
    ============================================================ */
 export const action = async ({ request }: ActionFunctionArgs) => {
-    await authenticate.admin(request);
+    const { session } = await authenticate.admin(request);
+    const PLATFORM_ADMIN_EMAIL = process.env.PLATFORM_ADMIN_EMAIL || "admin@reboundcart.com";
+    if ((session as any).email !== PLATFORM_ADMIN_EMAIL) {
+        throw new Response("Unauthorized", { status: 403 });
+    }
+
     const formData = await request.formData();
     const intent = formData.get("intent") as string;
 

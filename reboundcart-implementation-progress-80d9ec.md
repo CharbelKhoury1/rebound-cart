@@ -2,7 +2,7 @@
 
 This document tracks the implementation progress of ReboundCart B2B2C marketplace platform and serves as the definitive reference for all development work.
 
-## Implementation Status: Phase 2 In Progress 🚀
+## Implementation Status: Phase 2 Finalizing / Phase 3 Starting 🚀
 
 ---
 
@@ -78,10 +78,12 @@ This document tracks the implementation progress of ReboundCart B2B2C marketplac
 
 ### Remaining Phase 2 Tasks
 
-#### Quality Control Framework — TODO
-- [ ] AI-powered communication quality assessment (external API integration)
-- [ ] Customer satisfaction tracking
-- [ ] Automated compliance checks
+#### Quality Control Framework — DONE ✅
+- **AI-powered assessment**: Automated scoring (0-100) and feedback generation for all rep-customer communications
+- **Communication logging**: Multi-channel logging (WhatsApp, Email, SMS, Phone) with sentiment analysis
+- **Audit trail**: Complete interaction history visible to platform admins for quality oversight
+- **QC performance tracking**: "QC Avg" metric integrated into both Rep and Admin dashboards
+- **Schema update**: `Communication` model added with relations to checkouts and reps
 
 #### Mobile Support — TODO (Phase 2 stretch goal)
 - [ ] Progressive Web App (PWA) manifest for mobile access
@@ -98,12 +100,24 @@ This document tracks the implementation progress of ReboundCart B2B2C marketplac
 ## Navigation Structure
 
 ```
-/app                      → Main Dashboard (stats + recent tables)
-├── /app/checkouts        → Cross-Store Checkout Management (assign/unassign reps)
-├── /app/sales-reps       → Internal Sales Rep Management (legacy)
-├── /app/platform-users   → Marketplace User Management (CRUD + tier management)
-├── /app/admin-approvals  → Application Review (approve/reject PENDING users)
-└── /app/public-signup    → Self-Service Signup Portal (multi-step form)
+### Platform Admin Portal
+```
+/app/platform-admin              → Admin Overview (Health & Multi-store stats)
+├── /app/platform-admin/users    → Marketplace User Management (CRUD + Tiers)
+├── /app/platform-admin/approvals→ Review Pending Applications
+├── /app/platform-admin/commissions → Global Commission & Payout Management
+├── /app/platform-admin/analytics → Unified Platform Analytics
+└── /app/platform-admin/checkouts → Global Checkout & QC Audit
+```
+
+### Store Owner Dashboard
+```
+/app                    → Store Dashboard (KPIs + Recent checkouts)
+├── /app/checkouts       → My Abandoned Checkouts
+├── /app/analytics       → Recovery Revenue Insights
+├── /app/payouts         → My Settlements & Fee Tracking
+└── /app/settings        → Store Configuration
+```
 ```
 
 ---
