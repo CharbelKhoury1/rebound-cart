@@ -28,61 +28,62 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const intent = formData.get("intent");
 
   if (intent === "sync") {
-    // Fetch abandoned checkouts from Shopify
-    // We'll use GraphQL for better filtering/performance
-    const response = await admin.graphql(
-      `#graphql
-      query {
-        abandonedCheckouts(first: 50) {
-          edges {
-            node {
-              id
-              customer {
-                email
-              }
-              totalPriceSet {
-                presentmentMoney {
-                  amount
-                  currencyCode
-                }
-              }
-              abandonedCheckoutUrl
-              createdAt
-            }
-          }
+    try {
+      // Re-authenticate to ensure session is fresh and get accessToken
+      const { session } = await authenticate.admin(request);
+      const shop = session.shop;
+      const accessToken = session.accessToken;
+
+      // Direct fetch to REST API (often more permissive for unprotected data in dev)
+      const response = await fetch(
+        `https://${shop}/admin/api/2025-01/abandoned_checkouts.json`,
+        {
+          headers: {
+            "X-Shopify-Access-Token": accessToken!,
+            "Content-Type": "application/json",
+          },
         }
-      }`
-    );
+      );
 
-    const responseJson = await response.json();
-    const abandonedCheckouts = responseJson.data.abandonedCheckouts.edges;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.errors || `Shopify API returned ${response.status}`);
+      }
 
-    for (const edge of abandonedCheckouts) {
-      const node = edge.node;
-      const checkoutId = node.id.split("/").pop(); // Get numeric ID from GID
-      const customerEmail = node.customer?.email || null;
+      const responseJson: any = await response.json();
+      const abandonedCheckouts = responseJson.abandoned_checkouts || [];
 
-      await db.abandonedCheckout.upsert({
-        where: { checkoutId: String(checkoutId) },
-        update: {
-          totalPrice: node.totalPriceSet.presentmentMoney.amount,
-          currency: node.totalPriceSet.presentmentMoney.currencyCode,
-          email: customerEmail,
-        },
-        create: {
-          shop,
-          checkoutId: String(checkoutId),
-          email: customerEmail,
-          totalPrice: node.totalPriceSet.presentmentMoney.amount,
-          currency: node.totalPriceSet.presentmentMoney.currencyCode,
-          checkoutUrl: node.abandonedCheckoutUrl,
-          status: "ABANDONED",
-          createdAt: new Date(node.createdAt),
-        },
-      });
+      console.log(`REST Sync: Found ${abandonedCheckouts.length} checkouts`);
+
+      for (const checkout of abandonedCheckouts) {
+        await db.abandonedCheckout.upsert({
+          where: { checkoutId: String(checkout.id) },
+          update: {
+            totalPrice: checkout.total_price,
+            currency: checkout.currency,
+            email: checkout.email || null,
+          },
+          create: {
+            shop,
+            checkoutId: String(checkout.id),
+            email: checkout.email || null,
+            totalPrice: checkout.total_price,
+            currency: checkout.currency,
+            checkoutUrl: checkout.abandoned_checkout_url,
+            status: "ABANDONED",
+            createdAt: new Date(checkout.created_at),
+          },
+        });
+      }
+
+      return json({ success: true, count: abandonedCheckouts.length });
+    } catch (error: any) {
+      console.error("Sync Error:", error);
+      return json({
+        success: false,
+        error: error.message || "Failed to fetch. Please check 'Protected Customer Data' in Partner Dashboard."
+      }, { status: 500 });
     }
-
-    return json({ success: true });
   }
 
   return json({ success: false });
