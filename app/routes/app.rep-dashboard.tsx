@@ -19,18 +19,18 @@ import {
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
+import { authenticate } from "../shopify.server";
 import { useState } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  // For now, use a mock rep - in real implementation, this would use JWT auth
-  const mockRepEmail = "rep@reboundcart.com";
+  const { session } = await authenticate.admin(request);
+  const repEmail = (session as any).email;
 
   // Get sales rep data
   const salesRep = await db.platformUser.findUnique({
-    where: { email: mockRepEmail },
+    where: { email: repEmail },
     include: {
       claimedCheckouts: {
-        where: { status: "ABANDONED" },
         orderBy: { updatedAt: "desc" },
         include: { communications: { orderBy: { createdAt: "desc" } } },
       },
@@ -40,9 +40,26 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     },
   });
 
-  if (!salesRep) {
-    throw new Response("Sales representative not found", { status: 404 });
+  if (!salesRep || salesRep.role !== "SALES_REP") {
+    throw new Response("Unauthorized: Sales representative access required", { status: 403 });
   }
+
+  // Get Marketplace checkouts (unclaimed) from stores that have enabled it
+  const enabledShops = await db.shopSettings.findMany({
+    where: { isMarketplaceEnabled: true },
+    select: { shop: true }
+  });
+  const shopList = enabledShops.map(s => s.shop);
+
+  const availableCheckouts = await db.abandonedCheckout.findMany({
+    where: {
+      claimedById: null,
+      status: "ABANDONED",
+      shop: { in: shopList }
+    },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
 
   // Calculate performance metrics
   const totalCheckouts = salesRep.claimedCheckouts?.length || 0;
@@ -52,6 +69,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   return json({
     salesRep,
+    availableCheckouts,
     stats: {
       totalCheckouts,
       recoveredCheckouts,
@@ -63,18 +81,22 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
+  const { session } = await authenticate.admin(request);
+  const repEmail = (session as any).email;
   const formData = await request.formData();
   const intent = formData.get("intent");
 
   if (intent === "claimCheckout") {
     const checkoutId = formData.get("checkoutId") as string;
-    const repEmail = "rep@reboundcart.com"; // Mock rep email
 
     try {
+      const rep = await db.platformUser.findUnique({ where: { email: repEmail } });
+      if (!rep) return json({ success: false, error: "Rep not found" }, { status: 404 });
+
       await db.abandonedCheckout.update({
         where: { id: checkoutId },
         data: {
-          claimedById: repEmail,
+          claimedById: rep.id,
           claimedAt: new Date(),
         },
       });
@@ -105,7 +127,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const checkoutId = formData.get("checkoutId") as string;
     const channel = formData.get("channel") as string;
     const content = formData.get("content") as string;
-    const repEmail = "rep@reboundcart.com";
 
     const rep = await db.platformUser.findUnique({ where: { email: repEmail } });
     if (!rep) return json({ success: false, error: "Rep not found" }, { status: 404 });
@@ -158,14 +179,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function RepDashboard() {
-  const { salesRep, stats } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
+  const { salesRep, stats, availableCheckouts } = data as any;
   const actionData = useActionData<typeof action>();
   const [selectedCheckout, setSelectedCheckout] = useState<any>(null);
   const [modalActive, setModalActive] = useState(false);
   const fetcher = useFetcher();
   const isSubmitting = fetcher.state === "submitting";
 
-  const checkoutRows = salesRep.claimedCheckouts?.map((checkout: any) => {
+  const checkoutRows = salesRep?.claimedCheckouts?.map((checkout: any) => {
     const avgScore = checkout.communications?.length > 0
       ? Math.round(checkout.communications.reduce((sum: number, c: any) => sum + (c.qcScore || 0), 0) / checkout.communications.length)
       : null;
@@ -192,9 +214,24 @@ export default function RepDashboard() {
     ];
   }) || [];
 
-  const commissionRows = salesRep.commissions?.map((commission: any) => [
+  const marketplaceRows = availableCheckouts?.map((checkout: any) => [
+    checkout.checkoutId.slice(-8) + "...",
+    checkout.email || "N/A",
+    `${checkout.totalPrice} ${checkout.currency}`,
+    <Badge tone="info">AVAILABLE</Badge>,
+    new Date(checkout.createdAt).toLocaleDateString(),
+    <fetcher.Form method="post">
+      <input type="hidden" name="intent" value="claimCheckout" />
+      <input type="hidden" name="checkoutId" value={checkout.id} />
+      <Button size="slim" variant="primary" submit loading={isSubmitting && fetcher.formData?.get("checkoutId") === checkout.id}>
+        Claim
+      </Button>
+    </fetcher.Form>,
+  ]) || [];
+
+  const commissionRows = salesRep?.commissions?.map((commission: any) => [
     commission.orderNumber || commission.orderId.slice(-8) + "...",
-    `$${commission.commissionAmount.toFixed(2)}`,
+    `$${Number(commission.commissionAmount).toFixed(2)}`,
     <Badge tone={commission.status === "PAID" ? "success" : "warning"}>
       {commission.status}
     </Badge>,
@@ -203,7 +240,7 @@ export default function RepDashboard() {
 
   return (
     <Page>
-      <TitleBar title="Sales Rep Dashboard" />
+      <TitleBar title="Recovery Workspace" />
 
       <BlockStack gap="500">
         <Layout>
@@ -214,13 +251,13 @@ export default function RepDashboard() {
                 <Text as="h2" variant="headingMd">My Profile</Text>
                 <BlockStack gap="200">
                   <Text as="p" variant="bodyMd">
-                    <strong>Name:</strong> {salesRep.firstName} {salesRep.lastName}
+                    <strong>Name:</strong> {salesRep?.firstName} {salesRep?.lastName}
                   </Text>
                   <Text as="p" variant="bodyMd">
-                    <strong>Email:</strong> {salesRep.email}
+                    <strong>Email:</strong> {salesRep?.email}
                   </Text>
                   <Text as="p" variant="bodyMd">
-                    <strong>Tier:</strong> {salesRep.tier || "BRONZE"}
+                    <strong>Tier:</strong> {salesRep?.tier || "BRONZE"}
                   </Text>
                   <Text as="p" variant="bodyMd">
                     <strong>Status:</strong> {salesRep.status}

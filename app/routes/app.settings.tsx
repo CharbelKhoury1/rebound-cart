@@ -11,18 +11,21 @@ import {
   TextField,
   Select,
   FormLayout,
+  Checkbox,
+  Box,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
+import { useState } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
   // Get shop settings
-  const settings = await db.shopSettings.findUnique({ 
-    where: { shop } 
+  const settings = await db.shopSettings.findUnique({
+    where: { shop }
   });
 
   return json({ settings });
@@ -34,16 +37,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const formData = await request.formData();
 
   const commissionRate = formData.get("commissionRate");
+  const isMarketplaceEnabled = formData.get("isMarketplaceEnabled") === "true";
 
   try {
     await db.shopSettings.upsert({
       where: { shop },
-      update: { 
+      update: {
         commissionRate: commissionRate ? Number(commissionRate) : undefined,
+        isMarketplaceEnabled,
       },
-      create: { 
-        shop, 
+      create: {
+        shop,
         commissionRate: commissionRate ? Number(commissionRate) : 10.0,
+        isMarketplaceEnabled,
       },
     });
     return json({ success: true, message: "Settings updated successfully" });
@@ -57,76 +63,81 @@ export default function SettingsPage() {
   const actionData = useActionData<typeof action>();
   const fetcher = useFetcher();
 
+  const [commissionRate, setCommissionRate] = useState(settings?.commissionRate?.toString() || "10");
+  const [marketplaceEnabled, setMarketplaceEnabled] = useState(settings ? (settings as any).isMarketplaceEnabled : true);
+
   return (
     <Page>
       <TitleBar title="Store Settings" />
-      
+
       <BlockStack gap="500">
         <Layout>
-          <Layout.Section variant="oneThird">
+          <Layout.Section>
             <Card>
               <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">Commission Settings</Text>
+                <Text as="h2" variant="headingMd">Platform Configuration</Text>
                 <fetcher.Form method="POST">
                   <FormLayout>
                     <TextField
-                      label="Commission Rate (%)"
+                      label="Default Representative Commission (%)"
                       name="commissionRate"
                       type="number"
-                      value={settings?.commissionRate?.toString() || "10"}
+                      value={commissionRate}
+                      onChange={setCommissionRate}
                       autoComplete="off"
                       suffix="%"
-                      helpText="Percentage of recovered order value paid to sales representatives"
+                      helpText="The base rate paid to reps for successful recoveries."
                     />
-                    <Button submit variant="primary">Save Settings</Button>
+
+                    <Box paddingBlockStart="200">
+                      <Checkbox
+                        label="Enable Marketplace Access"
+                        checked={marketplaceEnabled}
+                        onChange={setMarketplaceEnabled}
+                        helpText="When enabled, your abandoned checkouts will be visible to our marketplace of sales representatives."
+                      />
+                      <input type="hidden" name="isMarketplaceEnabled" value={marketplaceEnabled.toString()} />
+                    </Box>
+
+                    <Button submit variant="primary" loading={fetcher.state === "submitting"}>
+                      Save Configuration
+                    </Button>
                   </FormLayout>
                 </fetcher.Form>
               </BlockStack>
             </Card>
           </Layout.Section>
 
-          <Layout.Section>
+          <Layout.Section variant="oneThird">
             <Card>
               <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">Store Information</Text>
-                <BlockStack gap="200">
-                  <Text as="p" variant="bodyMd">
-                    <strong>Shop Domain:</strong> {settings?.shop}
-                  </Text>
-                  <Text as="p" variant="bodyMd">
-                    <strong>Current Commission Rate:</strong> {settings?.commissionRate}%
-                  </Text>
-                </BlockStack>
+                <Text as="h2" variant="headingMd">Marketplace Summary</Text>
+                <Text as="p">
+                  Active in Marketplace: <strong>{marketplaceEnabled ? "YES" : "NO"}</strong>
+                </Text>
+                <Text as="p" tone="subdued">
+                  Disabling marketplace access will hide your checkouts from all external representatives except those you manually assign.
+                </Text>
               </BlockStack>
             </Card>
           </Layout.Section>
         </Layout>
+
+        {/* Action Messages */}
+        {actionData && (
+          <Layout.Section>
+            {actionData.success ? (
+              <Box padding="400">
+                <Text tone="success" as="p">Settings updated successfully</Text>
+              </Box>
+            ) : (
+              <Box padding="400">
+                <Text tone="critical" as="p">{actionData.error || "Failed to update settings"}</Text>
+              </Box>
+            )}
+          </Layout.Section>
+        )}
       </BlockStack>
-
-      {/* Action Messages */}
-      {actionData?.success && (
-        <Layout.Section>
-          <Card>
-            <BlockStack gap="200">
-              <Text tone="success" as="p">
-                Settings updated successfully
-              </Text>
-            </BlockStack>
-          </Card>
-        </Layout.Section>
-      )}
-
-      {actionData?.error && (
-        <Layout.Section>
-          <Card>
-            <BlockStack gap="200">
-              <Text tone="critical" as="p">
-                Error: Failed to update settings
-              </Text>
-            </BlockStack>
-          </Card>
-        </Layout.Section>
-      )}
     </Page>
   );
 }

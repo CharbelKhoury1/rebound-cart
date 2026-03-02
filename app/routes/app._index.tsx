@@ -26,8 +26,67 @@ import db from "../db.server";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
+  const email = (session as any).email;
 
-  // 1. Get or create shop settings
+  const PLATFORM_ADMIN_EMAIL = process.env.PLATFORM_ADMIN_EMAIL || "admin@reboundcart.com";
+  const isAdmin = email ? email === PLATFORM_ADMIN_EMAIL : false;
+
+  const platformUser = email ? await db.platformUser.findUnique({
+    where: { email },
+  }) : null;
+  const isRep = platformUser?.role === "SALES_REP" && platformUser?.status === "ACTIVE";
+
+  // Role: Platform Admin
+  if (isAdmin) {
+    const [totalStores, totalReps, totalCheckouts, totalRecovered] = await Promise.all([
+      db.shopSettings.count(),
+      db.platformUser.count({ where: { role: "SALES_REP" } }),
+      db.abandonedCheckout.count(),
+      db.abandonedCheckout.count({ where: { status: "RECOVERED" } }),
+    ]);
+
+    const globalCommission = await db.commission.aggregate({
+      _sum: { commissionAmount: true, platformFee: true },
+    });
+
+    return json({
+      userRole: "ADMIN",
+      stats: {
+        totalStores,
+        totalReps,
+        totalCheckouts,
+        totalRecovered,
+        totalEarnings: Number(globalCommission._sum.commissionAmount || 0),
+        platformFees: Number(globalCommission._sum.platformFee || 0),
+        recoveryRate: totalCheckouts > 0 ? (totalRecovered / totalCheckouts) * 100 : 0,
+      }
+    });
+  }
+
+  // Role: Sales Rep
+  if (isRep && platformUser) {
+    const claimedCount = await db.abandonedCheckout.count({ where: { claimedById: platformUser.id } });
+    const recoveredCount = await db.abandonedCheckout.count({
+      where: { claimedById: platformUser.id, status: "RECOVERED" }
+    });
+    const commissionStats = await db.commission.aggregate({
+      where: { repId: platformUser.id },
+      _sum: { commissionAmount: true }
+    });
+
+    return json({
+      userRole: "REP",
+      salesRep: platformUser,
+      stats: {
+        totalCheckouts: claimedCount,
+        recoveredCheckouts: recoveredCount,
+        recoveryRate: claimedCount > 0 ? (recoveredCount / claimedCount) * 100 : 0,
+        totalEarnings: Number(commissionStats._sum.commissionAmount || 0),
+      }
+    });
+  }
+
+  // Default Role: Store Owner
   let settings = await db.shopSettings.findUnique({ where: { shop } });
   if (!settings) {
     settings = await db.shopSettings.create({
@@ -35,40 +94,31 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     });
   }
 
-  // 2. Get stats
   const totalAbandoned = await db.abandonedCheckout.count({ where: { shop } });
-  const totalRecovered = await db.abandonedCheckout.count({
-    where: { shop, status: "RECOVERED" },
-  });
-
+  const totalRecovered = await db.abandonedCheckout.count({ where: { shop, status: "RECOVERED" } });
   const commissions = await db.commission.findMany({
     where: { checkout: { shop } },
     select: { commissionAmount: true },
   });
-  const totalCommissionPaid = commissions.reduce((sum: number, c: any) => sum + Number(c.commissionAmount), 0);
+  const totalCommissionPaid = commissions.reduce((sum, c) => sum + Number(c.commissionAmount), 0);
 
-  // Calculate Revenue Recovered This Month
   const now = new Date();
   const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const recoveredThisMonthCheckouts = await db.abandonedCheckout.findMany({
-    where: {
-      shop,
-      status: "RECOVERED",
-      updatedAt: { gte: firstDayOfMonth }
-    },
+    where: { shop, status: "RECOVERED", updatedAt: { gte: firstDayOfMonth } },
     select: { totalPrice: true }
   });
   const revenueRecoveredMonth = recoveredThisMonthCheckouts.reduce((sum, c) => sum + Number(c.totalPrice), 0);
 
-  // 3. Get recent checkouts for THIS STORE ONLY
   const recentCheckouts = await db.abandonedCheckout.findMany({
     where: { shop },
     orderBy: { createdAt: "desc" },
-    take: 10,
+    take: 5,
     include: { claimedBy: true },
   });
 
   return json({
+    userRole: "OWNER",
     settings,
     stats: {
       totalAbandoned,
@@ -109,26 +159,138 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Index() {
-  const { settings, stats, recentCheckouts } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
+  const { userRole, stats } = data as any;
   const fetcher = useFetcher();
-  const actionData = useActionData<typeof action>();
 
-  const checkoutRows = recentCheckouts.map((checkout: any) => [
-    checkout.checkoutId.slice(-8) + "...", // Shortened ID for display
+  // ── ADMIN VIEW ───────────────────────────────────────────────
+  if (userRole === "ADMIN") {
+    return (
+      <Page>
+        <TitleBar title="Platform Admin Dashboard" />
+        <BlockStack gap="500">
+          <Layout>
+            <Layout.Section>
+              <Grid>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                  <Card>
+                    <BlockStack gap="100">
+                      <Text as="p" variant="bodySm" tone="subdued">Total Stores</Text>
+                      <Text as="p" variant="headingLg" fontWeight="bold">{stats.totalStores}</Text>
+                    </BlockStack>
+                  </Card>
+                </Grid.Cell>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                  <Card>
+                    <BlockStack gap="100">
+                      <Text as="p" variant="bodySm" tone="subdued">Active Reps</Text>
+                      <Text as="p" variant="headingLg" fontWeight="bold">{stats.totalReps}</Text>
+                    </BlockStack>
+                  </Card>
+                </Grid.Cell>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                  <Card>
+                    <BlockStack gap="100">
+                      <Text as="p" variant="bodySm" tone="subdued">Platform Revenue</Text>
+                      <Text as="p" variant="headingLg" fontWeight="bold" tone="success">${stats.totalEarnings.toFixed(2)}</Text>
+                    </BlockStack>
+                  </Card>
+                </Grid.Cell>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                  <Card>
+                    <BlockStack gap="100">
+                      <Text as="p" variant="bodySm" tone="subdued">Fees Collected</Text>
+                      <Text as="p" variant="headingLg" fontWeight="bold" tone="magic">${stats.platformFees.toFixed(2)}</Text>
+                    </BlockStack>
+                  </Card>
+                </Grid.Cell>
+              </Grid>
+            </Layout.Section>
+            <Layout.Section>
+              <Card>
+                <BlockStack gap="400">
+                  <Text as="h2" variant="headingMd">Platform Health</Text>
+                  <Text as="p">Overall Recovery Rate: <strong>{stats.recoveryRate.toFixed(1)}%</strong></Text>
+                  <InlineStack gap="300">
+                    <Button url="/app/platform-admin/users">Manage Users</Button>
+                    <Button url="/app/platform-admin/checkouts">Audit Checkouts</Button>
+                  </InlineStack>
+                </BlockStack>
+              </Card>
+            </Layout.Section>
+          </Layout>
+        </BlockStack>
+      </Page>
+    );
+  }
+
+  // ── REP VIEW ───────────────────────────────────────────────
+  if (userRole === "REP") {
+    return (
+      <Page>
+        <TitleBar title="Representative Workspace" />
+        <BlockStack gap="500">
+          <Layout>
+            <Layout.Section>
+              <Grid>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}>
+                  <Card>
+                    <BlockStack gap="100">
+                      <Text as="p" variant="bodySm" tone="subdued">My Recoveries</Text>
+                      <Text as="p" variant="headingLg" fontWeight="bold">{stats.recoveredCheckouts}</Text>
+                    </BlockStack>
+                  </Card>
+                </Grid.Cell>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}>
+                  <Card>
+                    <BlockStack gap="100">
+                      <Text as="p" variant="bodySm" tone="subdued">My Earnings</Text>
+                      <Text as="p" variant="headingLg" fontWeight="bold" tone="success">${stats.totalEarnings.toFixed(2)}</Text>
+                    </BlockStack>
+                  </Card>
+                </Grid.Cell>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}>
+                  <Card>
+                    <BlockStack gap="100">
+                      <Text as="p" variant="bodySm" tone="subdued">Efficiency</Text>
+                      <Text as="p" variant="headingLg" fontWeight="bold">{stats.recoveryRate.toFixed(1)}%</Text>
+                    </BlockStack>
+                  </Card>
+                </Grid.Cell>
+              </Grid>
+            </Layout.Section>
+            <Layout.Section>
+              <Card>
+                <BlockStack gap="400">
+                  <Text as="h2" variant="headingMd">Ready to work?</Text>
+                  <Text as="p">You have {stats.totalCheckouts} active checkouts to follow up on.</Text>
+                  <Button variant="primary" url="/app/rep-dashboard">Go to Recovery Workspace</Button>
+                </BlockStack>
+              </Card>
+            </Layout.Section>
+          </Layout>
+        </BlockStack>
+      </Page>
+    );
+  }
+
+  // ── OWNER VIEW (Current Store Admin) ───────────────────────────
+  const { recentCheckouts } = data as any;
+  const checkoutRows = recentCheckouts?.map((checkout: any) => [
+    checkout.checkoutId.slice(-8) + "...",
     checkout.email || "N/A",
     `${checkout.totalPrice} ${checkout.currency}`,
     <Badge tone={checkout.status === "RECOVERED" ? "success" : "attention"}>
       {checkout.status}
     </Badge>,
     checkout.claimedBy ? `${checkout.claimedBy.firstName} ${checkout.claimedBy.lastName}` : "Unclaimed",
-  ]);
+  ]) || [];
 
   return (
     <Page>
-      <TitleBar title="ReboundCart Dashboard" />
+      <TitleBar title="Merchant Dashboard" />
       <BlockStack gap="500">
         <Layout>
-          {/* Enhanced Stats Section */}
           <Layout.Section>
             <Grid>
               <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}>
@@ -136,7 +298,6 @@ export default function Index() {
                   <BlockStack gap="200">
                     <Text as="h2" variant="headingSm" tone="subdued">Total Abandoned</Text>
                     <Text as="p" variant="headingLg" fontWeight="bold">{stats.totalAbandoned}</Text>
-                    <Text as="p" variant="bodySm" tone="subdued">Checkouts left behind</Text>
                   </BlockStack>
                 </Card>
               </Grid.Cell>
@@ -145,57 +306,34 @@ export default function Index() {
                   <BlockStack gap="200">
                     <Text as="h2" variant="headingSm" tone="subdued">Total Recovered</Text>
                     <Text as="p" variant="headingLg" fontWeight="bold" tone="success">{stats.totalRecovered}</Text>
-                    <Text as="p" variant="bodySm" tone="subdued">Successfully converted</Text>
                   </BlockStack>
                 </Card>
               </Grid.Cell>
               <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}>
                 <Card>
                   <BlockStack gap="200">
-                    <Text as="h2" variant="headingSm" tone="subdued">Recovery Rate</Text>
-                    <Text as="p" variant="headingLg" fontWeight="bold">{stats.recoveryRate.toFixed(1)}%</Text>
-                    <Text as="p" variant="bodySm" tone="subdued">Conversion success rate</Text>
-                  </BlockStack>
-                </Card>
-              </Grid.Cell>
-              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                <Card>
-                  <BlockStack gap="200">
                     <Text as="h2" variant="headingSm" tone="subdued">Revenue Recovered (MTD)</Text>
                     <Text as="p" variant="headingLg" fontWeight="bold" tone="magic">${stats.revenueRecoveredMonth.toFixed(2)}</Text>
-                    <Text as="p" variant="bodySm" tone="subdued">Month to date earnings</Text>
-                  </BlockStack>
-                </Card>
-              </Grid.Cell>
-              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                <Card>
-                  <BlockStack gap="200">
-                    <Text as="h2" variant="headingSm" tone="subdued">Commission Paid</Text>
-                    <Text as="p" variant="headingLg" fontWeight="bold">${stats.totalCommissionPaid.toFixed(2)}</Text>
-                    <Text as="p" variant="bodySm" tone="subdued">Total to sales reps</Text>
                   </BlockStack>
                 </Card>
               </Grid.Cell>
             </Grid>
           </Layout.Section>
 
-          {/* Quick Actions Section */}
           <Layout.Section variant="oneThird">
             <Card>
               <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">Quick Actions</Text>
-                <Button variant="plain" fullWidth textAlign="left" url="/app/checkouts">View My Checkouts</Button>
-                <Button variant="plain" fullWidth textAlign="left" url="/app/analytics">Recovery Analytics</Button>
-                <Button variant="plain" fullWidth textAlign="left" url="/app/settings">Store Settings</Button>
+                <Text as="h2" variant="headingMd">My Store Settings</Text>
+                <Text as="p">Default Rep Commission: <strong>{(data as any).settings?.commissionRate}%</strong></Text>
+                <Button fullWidth url="/app/settings">Edit Settings</Button>
               </BlockStack>
             </Card>
           </Layout.Section>
 
-          {/* Recent Checkouts Table */}
           <Layout.Section>
             <Card>
               <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">My Recent Abandoned Checkouts</Text>
+                <Text as="h2" variant="headingMd">Recent Store Activity</Text>
                 <DataTable
                   columnContentTypes={["text", "text", "text", "text", "text"]}
                   headings={["Checkout ID", "Customer", "Amount", "Status", "Assigned Rep"]}

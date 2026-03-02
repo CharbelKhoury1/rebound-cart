@@ -6,45 +6,28 @@ import { NavMenu } from "@shopify/app-bridge-react";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 
 import { authenticate } from "../shopify.server";
+import db from "../db.server";
 
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-
-  const PLATFORM_ADMIN_EMAIL = process.env.PLATFORM_ADMIN_EMAIL || "admin@reboundcart.com";
-  const isPlatformAdmin = (session as any).email === PLATFORM_ADMIN_EMAIL;
-
+  await authenticate.admin(request);
   return {
     apiKey: process.env.SHOPIFY_API_KEY || "",
-    isPlatformAdmin,
   };
 };
 
 export default function App() {
-  const { apiKey, isPlatformAdmin } = useLoaderData<typeof loader>();
+  const { apiKey } = useLoaderData<typeof loader>();
 
   return (
     <AppProvider isEmbeddedApp apiKey={apiKey}>
       <NavMenu>
         <Link to="/app" rel="home">Dashboard</Link>
-        {isPlatformAdmin ? (
-          <>
-            <Link to="/app/platform-admin">Admin Home</Link>
-            <Link to="/app/platform-admin/users">Users</Link>
-            <Link to="/app/platform-admin/approvals">Approvals</Link>
-            <Link to="/app/platform-admin/commissions">Commissions</Link>
-            <Link to="/app/platform-admin/analytics">Global Analytics</Link>
-            <Link to="/app/platform-admin/checkouts">All Checkouts</Link>
-          </>
-        ) : (
-          <>
-            <Link to="/app/checkouts">My Checkouts</Link>
-            <Link to="/app/analytics">Recovery Analytics</Link>
-            <Link to="/app/payouts">My Payouts</Link>
-            <Link to="/app/settings">Store Settings</Link>
-          </>
-        )}
+        <Link to="/app/checkouts">Recoveries</Link>
+        <Link to="/app/analytics">Analytics</Link>
+        <Link to="/app/payouts">Payouts</Link>
+        <Link to="/app/settings">Settings</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>

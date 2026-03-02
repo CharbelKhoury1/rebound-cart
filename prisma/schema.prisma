@@ -106,11 +106,12 @@ model Commission {
 }
 
 model ShopSettings {
-  id             String   @id @default(uuid())
-  shop           String   @unique
-  commissionRate Decimal  @default(10.0) // Percentage
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                    String   @id @default(uuid())
+  shop                  String   @unique
+  commissionRate        Decimal  @default(10.0) // Percentage
+  isMarketplaceEnabled  Boolean  @default(true) // If true, checkouts are visible to marketplace
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
 
 model PlatformUser {
