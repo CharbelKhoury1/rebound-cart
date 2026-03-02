@@ -47,7 +47,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
   const totalCommissionPaid = commissions.reduce((sum: number, c: any) => sum + Number(c.commissionAmount), 0);
 
-  // 3. Get recent checkouts, sales reps, and platform users
+  // 3. Get recent checkouts for THIS STORE ONLY
   const recentCheckouts = await db.abandonedCheckout.findMany({
     where: { shop },
     orderBy: { createdAt: "desc" },
@@ -55,31 +55,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     include: { claimedBy: true },
   });
 
-  const salesReps = await db.salesRep.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 5,
-  });
-
-  const platformUsers = await db.platformUser.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 5,
-    include: {
-      claimedCheckouts: { select: { id: true } },
-      commissions: { select: { commissionAmount: true } },
-    },
-  });
-
+  // Store owner should NOT see platform users or other stores' data
   return json({
     settings,
     stats: {
       totalAbandoned,
       totalRecovered,
       recoveryRate: totalAbandoned > 0 ? (totalRecovered / totalAbandoned) * 100 : 0,
-      totalCommissionPaid,
+      totalCommissionPaid, // What this store has paid out
     },
     recentCheckouts,
-    salesReps,
-    platformUsers,
   });
 };
 
@@ -111,11 +96,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Index() {
-  const { settings, stats, recentCheckouts, salesReps, platformUsers } = useLoaderData<typeof loader>();
+  const { settings, stats, recentCheckouts } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
   const actionData = useActionData<typeof action>();
 
-  const checkoutRows = recentCheckouts.map((checkout) => [
+  const checkoutRows = recentCheckouts.map((checkout: any) => [
     checkout.checkoutId.slice(-8) + "...", // Shortened ID for display
     checkout.email || "N/A",
     `${checkout.totalPrice} ${checkout.currency}`,
@@ -123,32 +108,6 @@ export default function Index() {
       {checkout.status}
     </Badge>,
     checkout.claimedBy ? `${checkout.claimedBy.firstName} ${checkout.claimedBy.lastName}` : "Unclaimed",
-  ]);
-
-  const repRows = salesReps.map((rep) => [
-    `${rep.firstName} ${rep.lastName}`,
-    rep.email,
-    <Badge tone={rep.role === "ADMIN" ? "info" as const : "success" as const}>{rep.role}</Badge>,
-    new Date(rep.createdAt).toLocaleDateString(),
-  ]);
-
-  const platformUserRows = platformUsers.map((user: any) => [
-    `${user.firstName || ""} ${user.lastName || ""}`.trim() || "—",
-    user.email,
-    <Badge tone={user.role === "PLATFORM_ADMIN" ? "info" as const : "success" as const}>
-      {user.role === "PLATFORM_ADMIN" ? "Admin" : "Sales Rep"}
-    </Badge>,
-    <Badge tone={
-      user.tier === "PLATINUM" ? "magic" as const :
-        user.tier === "GOLD" ? "warning" as const :
-          user.tier === "SILVER" ? "attention" as const :
-            "new" as const
-    }>
-      {user.tier || "BRONZE"}
-    </Badge>,
-    <Badge tone={user.status === "ACTIVE" ? "success" as const : user.status === "PENDING" ? "warning" as const : user.status === "SUSPENDED" ? "attention" as const : "critical" as const}>
-      {user.status}
-    </Badge>,
   ]);
 
   return (
@@ -224,13 +183,10 @@ export default function Index() {
 
             <Card>
               <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">Quick Actions</Text>
-                <Button variant="plain" fullWidth textAlign="left" url="/app/sales-reps">Manage Sales Reps</Button>
-                <Button variant="plain" fullWidth textAlign="left" url="/app/platform-users">Platform Users</Button>
-                <Button variant="plain" fullWidth textAlign="left" url="/app/checkouts">View All Checkouts</Button>
-                <Button variant="plain" fullWidth textAlign="left" url="/app/commissions">Commissions & Payouts</Button>
-                <Button variant="plain" fullWidth textAlign="left" url="/app/analytics">Analytics & Insights</Button>
-                <Button variant="plain" fullWidth textAlign="left" url="/app/admin-approvals">Pending Applications</Button>
+                <Text as="h2" variant="headingMd">Store Actions</Text>
+                <Button variant="plain" fullWidth textAlign="left" url="/app/checkouts">View My Checkouts</Button>
+                <Button variant="plain" fullWidth textAlign="left" url="/app/analytics">Recovery Analytics</Button>
+                <Button variant="plain" fullWidth textAlign="left" url="/app/settings">Store Settings</Button>
               </BlockStack>
             </Card>
           </Layout.Section>
@@ -239,44 +195,11 @@ export default function Index() {
           <Layout.Section>
             <Card>
               <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">Recent Abandoned Checkouts</Text>
+                <Text as="h2" variant="headingMd">My Recent Abandoned Checkouts</Text>
                 <DataTable
                   columnContentTypes={["text", "text", "text", "text", "text"]}
                   headings={["Checkout ID", "Customer", "Amount", "Status", "Assigned Rep"]}
                   rows={checkoutRows}
-                  hoverable
-                />
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-
-          {/* Sales Reps Table */}
-          <Layout.Section>
-            <Card>
-              <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">Sales Team</Text>
-                <DataTable
-                  columnContentTypes={["text", "text", "text", "text"]}
-                  headings={["Name", "Email", "Role", "Joined"]}
-                  rows={repRows}
-                  hoverable
-                />
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-
-          {/* Platform Users Preview Table */}
-          <Layout.Section>
-            <Card>
-              <BlockStack gap="400">
-                <InlineStack align="space-between">
-                  <Text as="h2" variant="headingMd">Platform Users (Recent)</Text>
-                  <Button variant="plain" url="/app/platform-users">View all →</Button>
-                </InlineStack>
-                <DataTable
-                  columnContentTypes={["text", "text", "text", "text", "text"]}
-                  headings={["Name", "Email", "Role", "Tier", "Status"]}
-                  rows={platformUserRows}
                   hoverable
                 />
               </BlockStack>
