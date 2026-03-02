@@ -19,7 +19,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -34,9 +34,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       const shop = session.shop;
       const accessToken = session.accessToken;
 
+      console.log(`Syncing for shop: ${shop}`);
       // Direct fetch to REST API (often more permissive for unprotected data in dev)
       const response = await fetch(
-        `https://${shop}/admin/api/2025-01/abandoned_checkouts.json`,
+        `https://${shop}/admin/api/2025-01/checkouts.json`,
         {
           headers: {
             "X-Shopify-Access-Token": accessToken!,
@@ -45,13 +46,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }
       );
 
+      console.log(`Shopify API Response Status: ${response.status}`);
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.errors || `Shopify API returned ${response.status}`);
       }
 
       const responseJson: any = await response.json();
-      const abandonedCheckouts = responseJson.abandoned_checkouts || [];
+      const abandonedCheckouts = responseJson.checkouts || [];
 
       console.log(`REST Sync: Found ${abandonedCheckouts.length} checkouts`);
 
@@ -147,16 +150,40 @@ export default function CheckoutsPage() {
   };
 
   const isSyncing = fetcher.state === "submitting" && fetcher.formData?.get("intent") === "sync";
+  const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    const data = fetcher.data as any;
+    if (data) {
+      if (data.success) {
+        setSyncResult({ success: true, message: `Successfully synced ${data.count} checkouts!` });
+      } else if (data.error) {
+        setSyncResult({ success: false, message: data.error });
+      }
+    }
+  }, [fetcher.data]);
 
   return (
-    <Page>
-      <TitleBar title="Abandoned Checkouts">
-        <button variant="primary" onClick={handleSync}>
-          Sync from Shopify
-        </button>
-      </TitleBar>
+    <Page
+      title="Abandoned Checkouts"
+      primaryAction={{
+        content: isSyncing ? "Syncing..." : "Sync from Shopify",
+        onAction: handleSync,
+        loading: isSyncing,
+      }}
+    >
+      <TitleBar title="Abandoned Checkouts" />
 
       <BlockStack gap="500">
+        {syncResult && (
+          <Banner
+            title={syncResult.success ? "Sync Complete" : "Sync Failed"}
+            tone={syncResult.success ? "success" : "critical"}
+            onDismiss={() => setSyncResult(null)}
+          >
+            <p>{syncResult.message}</p>
+          </Banner>
+        )}
         {/* Stats */}
         <Layout>
           <Layout.Section>
