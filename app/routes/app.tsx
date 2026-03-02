@@ -12,7 +12,11 @@ export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   await authenticate.admin(request);
 
-  return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+  return { 
+    apiKey: process.env.SHOPIFY_API_KEY || "",
+    // For now, assume store owner - platform admin will use separate routes
+    isPlatformAdmin: false,
+  };
 };
 
 export default function App() {
@@ -22,13 +26,9 @@ export default function App() {
     <AppProvider isEmbeddedApp apiKey={apiKey}>
       <NavMenu>
         <Link to="/app" rel="home">Dashboard</Link>
-        <Link to="/app/checkouts">Abandoned Checkouts</Link>
-        <Link to="/app/commissions">Commissions</Link>
-        <Link to="/app/analytics">Analytics</Link>
-        <Link to="/app/sales-reps">Sales Reps</Link>
-        <Link to="/app/platform-users">Platform Users</Link>
-        <Link to="/app/admin-approvals">Applications</Link>
-        <Link to="/app/public-signup">Public Signup</Link>
+        <Link to="/app/checkouts">My Checkouts</Link>
+        <Link to="/app/analytics">Recovery Analytics</Link>
+        <Link to="/app/settings">Store Settings</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>

@@ -106,7 +106,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 export default function RepDashboard() {
   const { salesRep, stats } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const [selectedCheckout, setSelectedCheckout] = useState<string | null>(null);
+  const [selectedCheckout, setSelectedCheckout] = useState<any>(null);
   const [modalActive, setModalActive] = useState(false);
   const fetcher = useFetcher();
 
@@ -120,7 +120,7 @@ export default function RepDashboard() {
     new Date(checkout.createdAt).toLocaleDateString(),
     <InlineStack gap="200">
       <Button size="slim" variant="plain" onClick={() => {
-        setSelectedCheckout(checkout.id);
+        setSelectedCheckout(checkout);
         setModalActive(true);
       }}>View</Button>
       {checkout.status === "ABANDONED" && (
@@ -267,7 +267,8 @@ export default function RepDashboard() {
                   </Text>
                 )}
               </BlockStack>
-            </Modal.Section>
+            </BlockStack>
+          </Modal.Section>
         </Modal>
       )}
 
