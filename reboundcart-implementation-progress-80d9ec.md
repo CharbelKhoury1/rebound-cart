@@ -2,86 +2,116 @@
 
 This document tracks the implementation progress of ReboundCart B2B2C marketplace platform and serves as the definitive reference for all development work.
 
-## Implementation Status: Phase 1 Complete ✅
+## Implementation Status: Phase 2 In Progress 🚀
 
-### Database Architecture - COMPLETED
+---
+
+## Phase 1: Core Infrastructure — COMPLETED ✅
+
+### Database Architecture — DONE
 - **Multi-tenant schema**: Full separation of store data with proper isolation
 - **PlatformUser model**: Complete marketplace user management with tiers, roles, and status tracking
 - **AssignmentRule model**: Framework for automated checkout assignment logic
 - **Enhanced relationships**: PlatformUser-AbandonedCheckout-Commission chain for marketplace operations
 - **Platform fee tracking**: 5% platform fee structure for revenue model
 - **Session role system**: STORE_OWNER/PLATFORM_ADMIN/SALES_REP role differentiation
+- **Prisma migration applied**: `20260302155241_add_platform_user_assignment_rule` migrated ✅
 
-### User Management System - COMPLETED
-- **Platform Users page**: Full CRUD interface for marketplace user management
+### User Management System — DONE
+- **Platform Users page** (`/app/platform-users`): Full CRUD interface — Add, Edit Tier, Suspend, Reactivate, Approve inline
 - **Tier system**: Bronze (15%), Silver (18%), Gold (20%), Platinum (25%) commission rates
 - **Role-based access**: Platform Admin vs Sales Representative permissions
-- **Status management**: Active/Inactive/Suspended user control
-- **Performance metrics**: Real-time tracking of checkouts claimed and commissions earned
+- **Status management**: Active / Inactive / Suspended / Pending / Rejected
+- **Stats cards**: Total, Active, Pending, Suspended counts
+- **Feedback banners**: Success/error notifications on all actions
 
-### Enhanced Dashboard - COMPLETED
-- **Multi-table display**: Sales reps table + Platform users table
-- **Navigation system**: Quick actions to all management sections
+### Enhanced Dashboard — DONE
+- **Multi-table display**: Sales reps table + Platform users preview table (with "View all →" link)
+- **Navigation system**: Full NavMenu with all 6 routes
 - **Marketplace ready**: Foundation for external sales rep onboarding
-- **Real-time data**: Live stats and performance metrics across all user types
+- **Platform Users preview**: Fixed column count (5 columns), properly includes claimedCheckouts/commissions
 
-### Core Infrastructure - COMPLETED
+### Core Infrastructure — DONE
 - **Multi-store support**: Architecture supports unlimited Shopify stores
 - **Cross-store analytics**: Unified dashboard for platform owner oversight
 - **Commission calculations**: Complex structures supporting platform fees and tiered rates
 - **Security framework**: Role-based access control and data isolation
 
-## Current Technical Issues
+---
 
-### Prisma Client Generation
-- **Status**: ⚠️ BLOCKED by Windows permissions
-- **Impact**: TypeScript errors due to outdated Prisma client
-- **Schema**: ✅ Updated and correct, ready for generation
-- **Workaround**: Development can continue with manual client updates
+## Phase 2: Marketplace Launch — IN PROGRESS 🚀
 
-### Navigation Structure
+### Completed in Phase 2 Session 2 (Mar 2, 2026 – evening)
+
+#### 6. Commissions & Payout Management — DONE ✅ (`/app/commissions`)
+- Stats cards: Total Earned, Pending Payout, Total Paid Out, Platform Fees
+- Per-rep payout summary table with individual "Pay All" per-rep action
+- Full commission log with status filter (All / Pending / Paid)
+- Individual "Mark Paid" per commission record
+- Bulk "Pay All Pending" with confirmation modal and safety warning
+- **CSV Export** of full commission log with one click
+
+#### 7. Analytics & Insights — DONE ✅ (`/app/analytics`)
+- **Health alerts**: auto-alerts for recovery rate < 15%, unclaimed > 10, pending applications
+- **Checkout recovery stats**: Total Abandoned / Recovered / Claimed / Unclaimed with claim rate
+- **Overall recovery rate progress bar** with target (20%) and minimum (15%) markers
+- **Revenue & commission stats**: Total revenue recovered, commissions paid, platform fees, avg order value
+- **🏆 Top Performers leaderboard**: ranked by recoveries with tier badge and pending payout
+- **Rep Effectiveness table**: claimed → recovered rate per rep with colored progress bars
+- **Monthly breakdown**: last 6 months abandoned vs recovered with recovery rate
+- **Platform Health scorecard**: 4-metric health dashboard with pass/warn indicators
+
+#### 8. Smart Webhook — DONE ✅ (`webhooks.orders.create.tsx`)
+- Now uses **tier-based commission rates** (Bronze: 15%, Silver: 18%, Gold: 20%, Platinum: 25%)
+- Supports **custom per-rep commission rate override**
+- Calculates and stores **5% platform fee** separately from rep commission
+- Logs commission details for audit trail
+
+#### 9. Schema Additions — DONE ✅ (Migration: `20260302160719_add_platform_user_fields`)
+- Added `phone`, `experience`, `skills` fields to `PlatformUser`
+- Public signup now saves all fields to DB
+- Migration applied to SQLite DB ✅
+
+#### 10. Navigation — DONE ✅
+- Added **Commissions** and **Analytics** to the NavMenu (8 total nav items)
+- Dashboard Quick Actions updated with links to all major pages
+
+### Remaining Phase 2 Tasks
+
+#### Quality Control Framework — TODO
+- [ ] AI-powered communication quality assessment (external API integration)
+- [ ] Customer satisfaction tracking
+- [ ] Automated compliance checks
+
+#### Mobile Support — TODO (Phase 2 stretch goal)
+- [ ] Progressive Web App (PWA) manifest for mobile access
+- [ ] Push notifications for new checkout assignments
+
+#### Prisma Client Refresh — ACTION NEEDED ⚠️
+- [ ] Stop the dev server (`Ctrl+C` in the terminal running `shopify app dev`)
+- [ ] Run: `npx prisma generate`
+- [ ] Restart dev server: `npm run dev`
+- This is needed so the TS client recognises the new `phone`, `experience`, `skills` fields
+
+---
+
+## Navigation Structure
+
 ```
-/app (Main Dashboard)
-├── /app/sales-reps (Internal Sales Rep Management)
-├── /app/platform-users (Marketplace User Management) 
-├── /app/checkouts (Cross-Store Checkout Management)
-└── Future: /app/stores (Store Management)
+/app                      → Main Dashboard (stats + recent tables)
+├── /app/checkouts        → Cross-Store Checkout Management (assign/unassign reps)
+├── /app/sales-reps       → Internal Sales Rep Management (legacy)
+├── /app/platform-users   → Marketplace User Management (CRUD + tier management)
+├── /app/admin-approvals  → Application Review (approve/reject PENDING users)
+└── /app/public-signup    → Self-Service Signup Portal (multi-step form)
 ```
 
-## Next Implementation Phases
+---
 
-### Phase 2: Marketplace Launch (Weeks 5-8)
-**Priority**: HIGH - Enable external sales rep onboarding
+## Phase 3: Advanced Features (Weeks 9-12)
+**Priority**: MEDIUM — Competitive differentiation
 
-#### Key Features:
-1. **Public Registration Portal**
-   - Self-service signup for qualified sales representatives
-   - Skills assessment and verification system
-   - Tier advancement from Bronze to Platinum
-   - Commission rate overrides for high-performers
-
-2. **Quality Control Framework**
-   - Performance monitoring (15% minimum recovery rate)
-   - AI-powered communication quality assessment
-   - Customer satisfaction tracking and dispute resolution
-   - Automated compliance checks and fraud detection
-
-3. **Financial Infrastructure**
-   - Real-time commission calculation across all platform users
-   - Automated payout processing with tax compliance
-   - Revenue analytics and growth metrics
-   - Platform fee tracking and reporting
-
-4. **Mobile Applications**
-   - Native iOS/Android apps for sales representatives
-   - Push notifications for new checkout assignments
-   - Offline capabilities for remote work
-   - API integration for third-party tools
-
-### Phase 3: Advanced Features (Weeks 9-12)
-**Priority**: MEDIUM - Competitive differentiation
-
-#### Key Features:
+### Key Features:
 1. **AI-Powered Matching**
    - Intelligent checkout-to-rep assignment based on skills and performance
    - Predictive analytics for recovery likelihood
@@ -99,10 +129,12 @@ This document tracks the implementation progress of ReboundCart B2B2C marketplac
    - CRM system connections (Salesforce, HubSpot)
    - Shopify App Store extensions and Theme App Extensions
 
-### Phase 4: Global Scaling (Weeks 13+)
-**Priority**: LOW - Long-term market dominance
+---
 
-#### Key Features:
+## Phase 4: Global Scaling (Weeks 13+)
+**Priority**: LOW — Long-term market dominance
+
+### Key Features:
 1. **Multi-Store Management**
    - Agency dashboard for managing multiple client stores
    - Cross-store analytics and performance benchmarking
@@ -114,22 +146,35 @@ This document tracks the implementation progress of ReboundCart B2B2C marketplac
    - Revenue optimization recommendations
    - Global payment and tax compliance system
 
+---
+
 ## Technical Debt & Improvements
 
-### Immediate Actions Required
-1. **Fix Prisma Generation**: Resolve Windows permission issues for client regeneration
-2. **Environment Setup**: Configure development environment with proper variables
-3. **Testing Suite**: Implement unit and integration tests for all new models
-4. **Documentation**: Create API documentation and user guides
-5. **Performance Optimization**: Database indexing and query optimization
+### Completed
+- ✅ Prisma client regenerated (`npx prisma generate`)
+- ✅ Database migration applied for PlatformUser + AssignmentRule models
+- ✅ TypeScript errors fixed across all route files
+- ✅ Polaris `autoComplete` prop compliance
 
-### Security & Compliance Checklist
+### In Progress / Remaining
+- [ ] **Testing Suite**: Unit and integration tests for all models and actions
+- [ ] **Documentation**: API documentation and user guides
+- [ ] **Performance Optimization**: Database indexing and query optimization
+- [ ] **GDPR compliance** implementation
+- [ ] **Audit logging** for all user actions
+- [ ] **Data encryption** at rest and in transit
+
+---
+
+## Security & Compliance Checklist
 - [ ] GDPR compliance implementation
 - [ ] Data encryption at rest and in transit
 - [ ] Audit logging for all user actions
 - [ ] Role-based access control testing
 - [ ] Data retention and deletion policies
 - [ ] Security audit and penetration testing
+
+---
 
 ## Success Metrics to Track
 
@@ -148,11 +193,13 @@ This document tracks the implementation progress of ReboundCart B2B2C marketplac
 - **Zero security incidents** in first 6 months
 - **99.9%+ uptime** for platform availability
 
+---
+
 ## Go-To-Market Requirements
 
 ### Pre-Launch Checklist
-- [ ] Resolve Prisma client generation issues
-- [ ] Complete Phase 2 marketplace features
+- [x] Resolve Prisma client generation issues ✅
+- [ ] Complete Phase 2 marketplace features (in progress)
 - [ ] Implement comprehensive testing suite
 - [ ] Set up production environment and monitoring
 - [ ] Create marketing materials and app store listing
@@ -165,6 +212,8 @@ This document tracks the implementation progress of ReboundCart B2B2C marketplac
 3. **Public Launch**: Open marketplace to qualified sales representatives
 4. **Scale Phase**: Marketing push and partnership development
 
+---
+
 ## Final Architecture Decision
 
 ### Chosen Model: **B2B2C Marketplace**
@@ -173,4 +222,4 @@ This document tracks the implementation progress of ReboundCart B2B2C marketplac
 - **Revenue Streams**: Platform fees (5-10%), premium features, enterprise services
 - **Target Market**: Initially Lebanon, with GCC expansion path
 
-This implementation progress document serves as the definitive guide for completing ReboundCart's transformation into a global marketplace platform for abandoned cart recovery.
+This document is updated as progress is made and serves as the definitive guide for completing ReboundCart's transformation into a global marketplace platform for abandoned cart recovery.

@@ -97,10 +97,13 @@ model PlatformUser {
   email         String    @unique
   firstName     String?
   lastName      String?
+  phone         String?
   role          String    @default("SALES_REP") // "PLATFORM_ADMIN", "SALES_REP"
-  status        String    @default("ACTIVE") // "ACTIVE", "INACTIVE", "SUSPENDED"
-  tier          String?   @default("BRONZE") // "BRONZE", "SILVER", "GOLD", "PLATINUM"
-  commissionRate Decimal? // Override platform default
+  status        String    @default("ACTIVE")    // "ACTIVE", "INACTIVE", "SUSPENDED", "PENDING", "REJECTED"
+  tier          String?   @default("BRONZE")    // "BRONZE", "SILVER", "GOLD", "PLATINUM"
+  commissionRate Decimal?                       // Override tier default rate
+  experience    String?                         // Years of sales experience
+  skills        String?                         // Skills summary from signup
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   claimedCheckouts AbandonedCheckout[]

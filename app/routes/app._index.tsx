@@ -63,6 +63,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const platformUsers = await db.platformUser.findMany({
     orderBy: { createdAt: "desc" },
     take: 5,
+    include: {
+      claimedCheckouts: { select: { id: true } },
+      commissions: { select: { commissionAmount: true } },
+    },
   });
 
   return json({
@@ -75,6 +79,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     },
     recentCheckouts,
     salesReps,
+    platformUsers,
   });
 };
 
@@ -86,12 +91,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (commissionRate) {
     const rate = Number(commissionRate);
-    
+
     // Validate commission rate
     if (isNaN(rate) || rate < 0 || rate > 100) {
-      return json({ 
-        success: false, 
-        error: "Commission rate must be a number between 0 and 100" 
+      return json({
+        success: false,
+        error: "Commission rate must be a number between 0 and 100"
       }, { status: 400 });
     }
 
@@ -106,7 +111,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Index() {
-  const { settings, stats, recentCheckouts, salesReps } = useLoaderData<typeof loader>();
+  const { settings, stats, recentCheckouts, salesReps, platformUsers } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
   const actionData = useActionData<typeof action>();
 
@@ -128,29 +133,22 @@ export default function Index() {
   ]);
 
   const platformUserRows = platformUsers.map((user: any) => [
-    `${user.firstName} ${user.lastName}`,
+    `${user.firstName || ""} ${user.lastName || ""}`.trim() || "—",
     user.email,
     <Badge tone={user.role === "PLATFORM_ADMIN" ? "info" as const : "success" as const}>
-      {user.role}
+      {user.role === "PLATFORM_ADMIN" ? "Admin" : "Sales Rep"}
     </Badge>,
     <Badge tone={
       user.tier === "PLATINUM" ? "magic" as const :
-      user.tier === "GOLD" ? "warning" as const :
-      user.tier === "SILVER" ? "attention" as const :
-      "new" as const
+        user.tier === "GOLD" ? "warning" as const :
+          user.tier === "SILVER" ? "attention" as const :
+            "new" as const
     }>
       {user.tier || "BRONZE"}
     </Badge>,
-    <Badge tone={user.status === "ACTIVE" ? "success" as const : user.status === "SUSPENDED" ? "warning" as const : "critical" as const}>
+    <Badge tone={user.status === "ACTIVE" ? "success" as const : user.status === "PENDING" ? "warning" as const : user.status === "SUSPENDED" ? "attention" as const : "critical" as const}>
       {user.status}
     </Badge>,
-    user.claimedCheckouts?.length.toString() || "0",
-    user.commissions?.reduce((sum: number, c: any) => sum + Number(c.commissionAmount), 0).toFixed(2) || "0.00",
-    new Date(user.createdAt).toLocaleDateString(),
-    <InlineStack gap="200">
-      <Button size="slim" variant="plain">Edit</Button>
-      <Button size="slim" variant="plain" tone="critical">Suspend</Button>
-    </InlineStack>,
   ]);
 
   return (
@@ -221,16 +219,18 @@ export default function Index() {
                 </BlockStack>
               </fetcher.Form>
             </Card>
-            
+
             <Divider />
-            
+
             <Card>
               <BlockStack gap="400">
                 <Text as="h2" variant="headingMd">Quick Actions</Text>
                 <Button variant="plain" fullWidth textAlign="left" url="/app/sales-reps">Manage Sales Reps</Button>
                 <Button variant="plain" fullWidth textAlign="left" url="/app/platform-users">Platform Users</Button>
                 <Button variant="plain" fullWidth textAlign="left" url="/app/checkouts">View All Checkouts</Button>
-                <Button variant="plain" fullWidth textAlign="left">Export Reports</Button>
+                <Button variant="plain" fullWidth textAlign="left" url="/app/commissions">Commissions & Payouts</Button>
+                <Button variant="plain" fullWidth textAlign="left" url="/app/analytics">Analytics & Insights</Button>
+                <Button variant="plain" fullWidth textAlign="left" url="/app/admin-approvals">Pending Applications</Button>
               </BlockStack>
             </Card>
           </Layout.Section>
@@ -265,14 +265,17 @@ export default function Index() {
             </Card>
           </Layout.Section>
 
-          {/* Platform Users Table */}
+          {/* Platform Users Preview Table */}
           <Layout.Section>
             <Card>
               <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">Platform Users</Text>
+                <InlineStack align="space-between">
+                  <Text as="h2" variant="headingMd">Platform Users (Recent)</Text>
+                  <Button variant="plain" url="/app/platform-users">View all →</Button>
+                </InlineStack>
                 <DataTable
-                  columnContentTypes={["text", "text", "text", "text", "text", "text", "text", "text"]}
-                  headings={["Name", "Email", "Role", "Tier", "Status", "Checkouts", "Commissions", "Joined", "Actions"]}
+                  columnContentTypes={["text", "text", "text", "text", "text"]}
+                  headings={["Name", "Email", "Role", "Tier", "Status"]}
                   rows={platformUserRows}
                   hoverable
                 />

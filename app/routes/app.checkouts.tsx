@@ -1,5 +1,5 @@
 import { json, type ActionFunctionArgs, type LoaderFunctionArgs } from "@remix-run/node";
-import { useActionData, useLoaderData, useFetcher } from "@remix-run/react";
+import { useLoaderData, useFetcher } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -10,11 +10,11 @@ import {
   InlineStack,
   DataTable,
   Badge,
-  Filters,
-  ChoiceList,
-  TextField,
   Select,
   Modal,
+  Banner,
+  EmptyState,
+  Filters,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -44,32 +44,40 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     where: whereClause,
     orderBy: { createdAt: "desc" },
     include: { claimedBy: true },
-    take: 50,
+    take: 100,
   });
 
-  const salesReps = await db.salesRep.findMany({
+  // Use PlatformUsers (active Sales Reps) for assignment
+  const platformUsers = await db.platformUser.findMany({
+    where: { status: "ACTIVE", role: "SALES_REP" },
     orderBy: { firstName: "asc" },
   });
 
-  return json({ checkouts, salesReps });
+  const stats = {
+    total: await db.abandonedCheckout.count({ where: { shop } }),
+    abandoned: await db.abandonedCheckout.count({ where: { shop, status: "ABANDONED" } }),
+    recovered: await db.abandonedCheckout.count({ where: { shop, status: "RECOVERED" } }),
+    unclaimed: await db.abandonedCheckout.count({ where: { shop, claimedById: null } }),
+  };
+
+  return json({ checkouts, platformUsers, stats });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  const shop = session.shop;
   const formData = await request.formData();
   const intent = formData.get("intent");
   const checkoutId = formData.get("checkoutId") as string;
-  const repId = formData.get("repId") as string;
 
-  if (intent === "claim" && checkoutId && repId) {
+  if (intent === "claim") {
+    const repId = formData.get("repId") as string;
+    if (!checkoutId || !repId) {
+      return json({ success: false, error: "Missing checkout or rep ID" }, { status: 400 });
+    }
     try {
       await db.abandonedCheckout.update({
         where: { id: checkoutId },
-        data: {
-          claimedById: repId,
-          claimedAt: new Date(),
-        },
+        data: { claimedById: repId, claimedAt: new Date() },
       });
       return json({ success: true });
     } catch (error) {
@@ -77,14 +85,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
   }
 
-  if (intent === "unclaim" && checkoutId) {
+  if (intent === "unclaim") {
+    if (!checkoutId) {
+      return json({ success: false, error: "Missing checkout ID" }, { status: 400 });
+    }
     try {
       await db.abandonedCheckout.update({
         where: { id: checkoutId },
-        data: {
-          claimedById: null,
-          claimedAt: null,
-        },
+        data: { claimedById: null, claimedAt: null },
       });
       return json({ success: true });
     } catch (error) {
@@ -96,21 +104,30 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function CheckoutsPage() {
-  const { checkouts, salesReps } = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const { checkouts, platformUsers, stats } = useLoaderData<typeof loader>();
+  const fetcher = useFetcher();
   const [selectedCheckout, setSelectedCheckout] = useState<string | null>(null);
   const [selectedRep, setSelectedRep] = useState<string>("");
   const [modalActive, setModalActive] = useState(false);
-  const fetcher = useFetcher();
+
+  const repChoices = [
+    { label: "— Select a representative —", value: "" },
+    ...platformUsers.map((rep: any) => ({
+      label: `${rep.firstName || ""} ${rep.lastName || ""}`.trim() + ` (${rep.tier})`,
+      value: rep.id,
+    })),
+  ];
 
   const checkoutRows = checkouts.map((checkout) => [
-    checkout.checkoutId.slice(-8) + "...",
+    checkout.checkoutId.slice(-8) + "…",
     checkout.email || "N/A",
-    `${checkout.totalPrice} ${checkout.currency}`,
+    `${Number(checkout.totalPrice).toFixed(2)} ${checkout.currency}`,
     <Badge tone={checkout.status === "RECOVERED" ? "success" : "attention"}>
       {checkout.status}
     </Badge>,
-    checkout.claimedBy ? `${checkout.claimedBy.firstName} ${checkout.claimedBy.lastName}` : "Unclaimed",
+    checkout.claimedBy
+      ? `${checkout.claimedBy.firstName || ""} ${checkout.claimedBy.lastName || ""}`.trim()
+      : <Badge tone="new">Unclaimed</Badge>,
     new Date(checkout.createdAt).toLocaleDateString(),
     <InlineStack gap="200">
       {!checkout.claimedBy && (
@@ -119,10 +136,11 @@ export default function CheckoutsPage() {
           variant="primary"
           onClick={() => {
             setSelectedCheckout(checkout.id);
+            setSelectedRep("");
             setModalActive(true);
           }}
         >
-          Claim
+          Assign
         </Button>
       )}
       {checkout.claimedBy && (
@@ -137,55 +155,86 @@ export default function CheckoutsPage() {
             );
           }}
         >
-          Unclaim
+          Unassign
         </Button>
       )}
     </InlineStack>,
   ]);
 
-  const repChoices = salesReps.map((rep) => ({
-    label: `${rep.firstName} ${rep.lastName} (${rep.email})`,
-    value: rep.id,
-  }));
-
   return (
     <Page>
       <TitleBar title="Abandoned Checkouts" />
-      
+
       <BlockStack gap="500">
+        {/* Feedback */}
+        {(fetcher.data as any)?.success === false && (
+          <Banner tone="critical">
+            <p>{(fetcher.data as any)?.error}</p>
+          </Banner>
+        )}
+
+        {/* Stats */}
+        <Layout>
+          <Layout.Section>
+            <InlineStack gap="400">
+              {[
+                { label: "Total Checkouts", value: stats.total, tone: "base" },
+                { label: "Abandoned", value: stats.abandoned, tone: "warning" },
+                { label: "Recovered", value: stats.recovered, tone: "success" },
+                { label: "Unassigned", value: stats.unclaimed, tone: "critical" },
+              ].map(({ label, value, tone }) => (
+                <Card key={label}>
+                  <BlockStack gap="100">
+                    <Text as="p" variant="bodySm" tone="subdued">{label}</Text>
+                    <Text as="p" variant="headingLg" tone={tone as any} fontWeight="bold">{value}</Text>
+                  </BlockStack>
+                </Card>
+              ))}
+            </InlineStack>
+          </Layout.Section>
+        </Layout>
+
+        {/* Table */}
         <Layout>
           <Layout.Section>
             <Card>
               <BlockStack gap="400">
                 <Text as="h2" variant="headingMd">All Abandoned Checkouts</Text>
-                <DataTable
-                  columnContentTypes={["text", "text", "text", "text", "text", "text", "text"]}
-                  headings={["Checkout ID", "Customer", "Amount", "Status", "Assigned Rep", "Created", "Actions"]}
-                  rows={checkoutRows}
-                  hoverable
-                />
+
+                {checkouts.length === 0 ? (
+                  <EmptyState heading="No checkouts yet" image="">
+                    <p>Abandoned checkouts from your Shopify store will appear here when customers leave without completing their purchase.</p>
+                  </EmptyState>
+                ) : (
+                  <DataTable
+                    columnContentTypes={["text", "text", "text", "text", "text", "text", "text"]}
+                    headings={["Checkout ID", "Customer", "Amount", "Status", "Assigned To", "Created", "Actions"]}
+                    rows={checkoutRows}
+                    hoverable
+                  />
+                )}
               </BlockStack>
             </Card>
           </Layout.Section>
         </Layout>
       </BlockStack>
 
-      {/* Claim Modal */}
+      {/* Claim/Assign Modal */}
       {selectedCheckout && (
         <Modal
           open={modalActive}
-          onClose={() => setModalActive(false)}
-          title="Claim Checkout"
+          onClose={() => {
+            setModalActive(false);
+            setSelectedCheckout(null);
+            setSelectedRep("");
+          }}
+          title="Assign Checkout to Sales Rep"
           primaryAction={{
-            content: "Claim",
+            content: "Assign",
             onAction: () => {
               if (selectedRep) {
                 fetcher.submit(
-                  { 
-                    intent: "claim", 
-                    checkoutId: selectedCheckout, 
-                    repId: selectedRep 
-                  },
+                  { intent: "claim", checkoutId: selectedCheckout, repId: selectedRep },
                   { method: "POST" }
                 );
                 setModalActive(false);
@@ -193,6 +242,7 @@ export default function CheckoutsPage() {
                 setSelectedRep("");
               }
             },
+            disabled: !selectedRep,
           }}
           secondaryActions={[
             {
@@ -207,14 +257,21 @@ export default function CheckoutsPage() {
         >
           <Modal.Section>
             <BlockStack gap="400">
-              <Text as="p">Select a sales representative to claim this checkout:</Text>
-              <Select
-                label="Sales Representative"
-                options={repChoices}
-                value={selectedRep}
-                onChange={setSelectedRep}
-                placeholder="Choose a sales rep"
-              />
+              <Text as="p" variant="bodyMd">
+                Select an active sales representative to handle this abandoned checkout.
+              </Text>
+              {platformUsers.length === 0 ? (
+                <Banner tone="warning">
+                  <p>No active platform users found. Approve applications from the <strong>Applications</strong> page first.</p>
+                </Banner>
+              ) : (
+                <Select
+                  label="Sales Representative"
+                  options={repChoices}
+                  value={selectedRep}
+                  onChange={setSelectedRep}
+                />
+              )}
             </BlockStack>
           </Modal.Section>
         </Modal>
