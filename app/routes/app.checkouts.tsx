@@ -147,13 +147,9 @@ export default function CheckoutsPage() {
   return (
     <Page>
       <TitleBar title="Abandoned Checkouts">
-        <Button
-          variant="primary"
-          onClick={handleSync}
-          loading={isSyncing}
-        >
+        <button variant="primary" onClick={handleSync}>
           Sync from Shopify
-        </Button>
+        </button>
       </TitleBar>
 
       <BlockStack gap="500">
