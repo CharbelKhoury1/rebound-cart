@@ -5,7 +5,8 @@ export async function syncCheckouts(admin: AdminApiContext, shop: string) {
     try {
         console.log(`Starting automated sync for: ${shop}`);
 
-        const response = await admin.graphql(
+        // Attempt 1: Full sync with customer data
+        let response = await admin.graphql(
             `#graphql
       query {
         abandonedCheckouts(first: 50) {
@@ -31,7 +32,33 @@ export async function syncCheckouts(admin: AdminApiContext, shop: string) {
       }`
         );
 
-        const responseJson: any = await response.json();
+        let responseJson: any = await response.json();
+
+        // Fallback: If access denied for customer, try basic sync
+        if (responseJson.errors && responseJson.errors.some((e: any) => e.message.includes("Access denied"))) {
+            console.warn("Access denied for customer field, falling back to basic sync...");
+            response = await admin.graphql(
+                `#graphql
+        query {
+          abandonedCheckouts(first: 50) {
+            edges {
+              node {
+                id
+                totalPriceSet {
+                  presentmentMoney {
+                    amount
+                    currencyCode
+                  }
+                }
+                abandonedCheckoutUrl
+                createdAt
+              }
+            }
+          }
+        }`
+            );
+            responseJson = await response.json();
+        }
 
         if (responseJson.errors) {
             console.error("Shopify GraphQL errors:", JSON.stringify(responseJson.errors, null, 2));
@@ -46,6 +73,8 @@ export async function syncCheckouts(admin: AdminApiContext, shop: string) {
             try {
                 const node = edge.node;
                 const checkoutId = node.id.split("/").pop();
+
+                // Handle potential missing customer object in fallback or guest checkouts
                 const email = node.customer?.email || null;
                 const firstName = node.customer?.firstName || "";
                 const lastName = node.customer?.lastName || "";

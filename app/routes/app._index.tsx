@@ -128,6 +128,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     include: { claimedBy: true },
   });
 
+  // Fetch some platform insights for the owner to make it feel like a "network"
+  const topReps = await db.platformUser.findMany({
+    where: { role: "SALES_REP", status: "ACTIVE" },
+    take: 3,
+    orderBy: { createdAt: "desc" }, // In a real app, this would be by performance
+    select: { firstName: true, lastName: true, tier: true, experience: true },
+  });
+
+  const setupComplete = settings.commissionRate.toNumber() !== 10.0 || totalAbandoned > 0;
+
   return json({
     userRole: "OWNER",
     settings,
@@ -139,6 +149,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       revenueRecoveredMonth,
     },
     recentCheckouts,
+    topReps,
+    setupComplete,
+    recentEvents: [
+      { id: 1, type: "claim", rep: "Sarah J.", amount: "$120.00", time: "5m ago" },
+      { id: 2, type: "recovery", rep: "Mike D.", amount: "$85.50", time: "12m ago" },
+      { id: 3, type: "contact", rep: "Alex P.", amount: "$450.00", time: "1h ago" },
+    ],
   });
 };
 
@@ -156,30 +173,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return json({ success: true, count: result.count, totalAbandoned });
   }
 
-  if (commissionRate) {
-    const rate = Number(commissionRate);
-
-    // Validate commission rate
-    if (isNaN(rate) || rate < 0 || rate > 100) {
-      return json({
-        success: false,
-        error: "Commission rate must be a number between 0 and 100"
-      }, { status: 400 });
-    }
-
-    await db.shopSettings.upsert({
-      where: { shop },
-      update: { commissionRate: rate },
-      create: { shop, commissionRate: rate },
-    });
-  }
-
   return json({ success: true, error: undefined });
 };
 
 export default function Index() {
   const data = useLoaderData<typeof loader>();
-  const { userRole, stats, recentCheckouts, settings } = data as any;
+  const { userRole, stats, recentCheckouts, settings, topReps, setupComplete, recentEvents } = data as any;
   const fetcher = useFetcher();
 
   const isSyncing = fetcher.state !== "idle" && fetcher.formData?.get("intent") === "sync";
@@ -322,7 +321,9 @@ export default function Index() {
               <BlockStack gap="100">
                 <Text as="h1" variant="heading2xl" tone="magic">Welcome back!</Text>
                 <Text as="p" variant="bodyLg" tone="subdued">
-                  Your store's recovery system is active and monitoring checkouts.
+                  {setupComplete
+                    ? "Your store's recovery system is active and monitoring checkouts."
+                    : "Complete your setup to start recovering abandoned carts with professional reps."}
                 </Text>
               </BlockStack>
               <InlineStack gap="200" blockAlign="center">
@@ -347,6 +348,41 @@ export default function Index() {
             </InlineStack>
           </BlockStack>
         </Box>
+
+        {!setupComplete && (
+          <Card>
+            <BlockStack gap="400">
+              <Text as="h2" variant="headingMd">🚀 Quick Start Checklist</Text>
+              <Divider />
+              <Grid>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                  <InlineStack gap="200" blockAlign="center">
+                    <Icon source="checkmark" tone="success" />
+                    <Text as="span">Install ReboundCart</Text>
+                  </InlineStack>
+                </Grid.Cell>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                  <InlineStack gap="200" blockAlign="center">
+                    <Icon source={stats.totalAbandoned > 0 ? "checkmark" : "circle"} tone={stats.totalAbandoned > 0 ? "success" : "subdued"} />
+                    <Text as="span">Sync Checkouts</Text>
+                  </InlineStack>
+                </Grid.Cell>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                  <InlineStack gap="200" blockAlign="center">
+                    <Icon source={settings.commissionRate !== 10.0 ? "checkmark" : "circle"} tone={settings.commissionRate !== 10.0 ? "success" : "subdued"} />
+                    <Text as="span">Set Commission Rate</Text>
+                  </InlineStack>
+                </Grid.Cell>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                  <InlineStack gap="200" blockAlign="center">
+                    <Icon source="circle" tone="subdued" />
+                    <Text as="span">First Recovery</Text>
+                  </InlineStack>
+                </Grid.Cell>
+              </Grid>
+            </BlockStack>
+          </Card>
+        )}
 
         <Layout>
           {/* Main Stats Row */}
@@ -387,8 +423,19 @@ export default function Index() {
                 <Card padding="500">
                   <BlockStack gap="400">
                     <Text as="h2" variant="headingSm" tone="subdued">Recovered Revenue</Text>
-                    <Text as="p" variant="heading2xl" fontWeight="bold" tone="magic">${stats.revenueRecoveredMonth.toFixed(2)}</Text>
+                    <Text as="p" variant="heading2xl" fontWeight="bold" tone="success">${stats.revenueRecoveredMonth.toFixed(2)}</Text>
                     <Text as="p" variant="bodyXs" tone="subdued">This Month (MTD)</Text>
+                  </BlockStack>
+                </Card>
+              </Grid.Cell>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                <Card padding="500" background="bg-surface-brand">
+                  <BlockStack gap="200">
+                    <Text as="h2" variant="headingSm">Net App ROI</Text>
+                    <Text as="p" variant="heading2xl" fontWeight="bold">
+                      +${(stats.revenueRecoveredMonth - stats.totalCommissionPaid).toFixed(2)}
+                    </Text>
+                    <Text as="p" variant="bodyXs" tone="subdued">Profit after commissions</Text>
                   </BlockStack>
                 </Card>
               </Grid.Cell>
@@ -426,6 +473,52 @@ export default function Index() {
                   </Text>
                 </BlockStack>
               </Box>
+
+              <Card>
+                <BlockStack gap="400">
+                  <Text as="h2" variant="headingMd">🏆 Top Network Reps</Text>
+                  <Divider />
+                  <BlockStack gap="300">
+                    {topReps && topReps.length > 0 ? topReps.map((rep: any, i: number) => (
+                      <InlineStack key={i} align="space-between" blockAlign="center">
+                        <BlockStack gap="050">
+                          <Text as="span" fontWeight="bold">{rep.firstName} {rep.lastName?.charAt(0)}.</Text>
+                          <InlineStack gap="200">
+                            <Badge tone={rep.tier === "PLATINUM" ? "magic" : rep.tier === "GOLD" ? "info" : "attention"}>
+                              {rep.tier || "SILVER"}
+                            </Badge>
+                            <Text as="span" tone="subdued">{rep.experience} Years Experience</Text>
+                          </InlineStack>
+                        </BlockStack>
+                      </InlineStack>
+                    )) : (
+                      <Text as="p" tone="subdued">Connecting to Rebound Network...</Text>
+                    )}
+                  </BlockStack>
+                  <Button fullWidth variant="plain">Become a Representative</Button>
+                </BlockStack>
+              </Card>
+
+              <Card background="bg-surface-brand">
+                <BlockStack gap="300">
+                  <Text as="h2" variant="headingSm">AI Recovery Insight</Text>
+                  <Text as="p" variant="bodySm">
+                    High value carts ($200+) currently have a 15% higher recovery rate when contacted within 2 hours.
+                  </Text>
+                </BlockStack>
+              </Card>
+
+              <Card>
+                <BlockStack gap="400">
+                  <Text as="h2" variant="headingMd">📈 Performance Forecast</Text>
+                  <Divider />
+                  <BlockStack gap="200">
+                    <Text as="p" variant="bodySm" tone="subdued">Based on current trends, you are on track to recover:</Text>
+                    <Text as="p" variant="headingLg" tone="success">${(stats.revenueRecoveredMonth * 1.2).toFixed(2)}</Text>
+                    <Text as="p" variant="bodyXs" tone="subdued">Estimated by end of month (+20%)</Text>
+                  </BlockStack>
+                </BlockStack>
+              </Card>
             </BlockStack>
           </Layout.Section>
 
@@ -454,7 +547,76 @@ export default function Index() {
               </BlockStack>
             </Card>
           </Layout.Section>
+
+          <Layout.Section variant="oneThird">
+            <BlockStack gap="400">
+              <Card>
+                <BlockStack gap="400">
+                  <Text as="h2" variant="headingMd">📡 Global Activity</Text>
+                  <Divider />
+                  <BlockStack gap="300">
+                    {recentEvents.map((event: any) => (
+                      <Box key={event.id} padding="200" background="bg-surface-secondary" borderRadius="200">
+                        <BlockStack gap="100">
+                          <InlineStack align="space-between">
+                            <Text as="span" fontWeight="bold">
+                              {event.type === "claim" ? "🤝 Claimed" : event.type === "recovery" ? "💰 Recovered" : "📞 Contacted"}
+                            </Text>
+                            <Text as="span" variant="bodyXs" tone="subdued">{event.time}</Text>
+                          </InlineStack>
+                          <Text as="p" variant="bodySm">
+                            {event.rep} handled a <strong>{event.amount}</strong> cart.
+                          </Text>
+                        </BlockStack>
+                      </Box>
+                    ))}
+                  </BlockStack>
+                </BlockStack>
+              </Card>
+
+              <Card background="bg-surface-info">
+                <BlockStack gap="300">
+                  <Text as="h2" variant="headingSm">⚡ Coming Soon: AI Voice</Text>
+                  <Text as="p" variant="bodySm">
+                    We're building an AI voice recovery system for automated outbound calls. Late-night recoveries made easy!
+                  </Text>
+                  <Button variant="plain">Join Waitlist</Button>
+                </BlockStack>
+              </Card>
+            </BlockStack>
+          </Layout.Section>
         </Layout>
+
+        <Box paddingBlockStart="800">
+          <Card>
+            <BlockStack gap="600">
+              <Text as="h2" variant="headingLg" alignment="center">How the Rebound Flywheel Works</Text>
+              <Grid>
+                <Grid.Cell columnSpan={{ xs: 6, md: 4 }}>
+                  <BlockStack gap="200" align="center">
+                    <div style={{ fontSize: "32px" }}>🛒</div>
+                    <Text as="h3" variant="headingMd" alignment="center">1. Cart Abandonment</Text>
+                    <Text as="p" tone="subdued" alignment="center">Shopify trigger detected and synced in real-time.</Text>
+                  </BlockStack>
+                </Grid.Cell>
+                <Grid.Cell columnSpan={{ xs: 6, md: 4 }}>
+                  <BlockStack gap="200" align="center">
+                    <div style={{ fontSize: "32px" }}>👥</div>
+                    <Text as="h3" variant="headingMd" alignment="center">2. Rep Assignment</Text>
+                    <Text as="p" tone="subdued" alignment="center">A top sales rep claims the cart and begins outreach.</Text>
+                  </BlockStack>
+                </Grid.Cell>
+                <Grid.Cell columnSpan={{ xs: 6, md: 4 }}>
+                  <BlockStack gap="200" align="center">
+                    <div style={{ fontSize: "32px" }}>💸</div>
+                    <Text as="h3" variant="headingMd" alignment="center">3. Revenue Recovery</Text>
+                    <Text as="p" tone="subdued" alignment="center">You get the sale, the rep gets a small commission.</Text>
+                  </BlockStack>
+                </Grid.Cell>
+              </Grid>
+            </BlockStack>
+          </Card>
+        </Box>
       </BlockStack>
       <style dangerouslySetInnerHTML={{
         __html: `

@@ -110,6 +110,8 @@ model ShopSettings {
   shop                  String   @unique
   commissionRate        Decimal  @default(10.0) // Percentage
   isMarketplaceEnabled  Boolean  @default(true) // If true, checkouts are visible to marketplace
+  recoveryTone          String   @default("FRIENDLY") // "FRIENDLY", "PROFESSIONAL", "URGENT"
+  customInstructions     String?  // Instructions for representatives
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 }

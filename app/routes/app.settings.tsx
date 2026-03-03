@@ -40,22 +40,30 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   const commissionRate = formData.get("commissionRate");
   const isMarketplaceEnabled = formData.get("isMarketplaceEnabled") === "true";
+  const recoveryTone = formData.get("recoveryTone");
+  const customInstructions = formData.get("customInstructions");
 
   try {
-    await (db.shopSettings as any).upsert({
+    const sDb = db.shopSettings as any;
+    await sDb.upsert({
       where: { shop },
       update: {
         commissionRate: commissionRate ? Number(commissionRate) : undefined,
         isMarketplaceEnabled,
+        recoveryTone: recoveryTone as string,
+        customInstructions: customInstructions as string,
       },
       create: {
         shop,
         commissionRate: commissionRate ? Number(commissionRate) : 10.0,
         isMarketplaceEnabled,
+        recoveryTone: (recoveryTone as string) || "FRIENDLY",
+        customInstructions: customInstructions as string,
       },
     });
     return json({ success: true, message: "Settings updated successfully" });
   } catch (error) {
+    console.error("Settings Update Error:", error);
     return json({ success: false, error: "Failed to update settings" }, { status: 500 });
   }
 };
@@ -67,6 +75,8 @@ export default function SettingsPage() {
 
   const [commissionRate, setCommissionRate] = useState(settings?.commissionRate?.toString() || "10");
   const [marketplaceEnabled, setMarketplaceEnabled] = useState(settings ? (settings as any).isMarketplaceEnabled : true);
+  const [tone, setTone] = useState(settings?.recoveryTone || "FRIENDLY");
+  const [instructions, setInstructions] = useState(settings?.customInstructions || "");
 
   return (
     <Page>
@@ -100,6 +110,29 @@ export default function SettingsPage() {
                       autoComplete="off"
                       suffix="%"
                       helpText="The base rate paid to reps for successful recoveries."
+                    />
+
+                    <Select
+                      label="Preferred Communication Tone"
+                      name="recoveryTone"
+                      options={[
+                        { label: "Friendly (Warm & Helpful)", value: "FRIENDLY" },
+                        { label: "Professional (Direct & Official)", value: "PROFESSIONAL" },
+                        { label: "Urgent (High Priority)", value: "URGENT" },
+                      ]}
+                      value={tone}
+                      onChange={setTone}
+                    />
+
+                    <TextField
+                      label="Instructions for Representatives"
+                      name="customInstructions"
+                      value={instructions}
+                      onChange={setInstructions}
+                      multiline={4}
+                      autoComplete="off"
+                      placeholder="e.g. Please mention our current 20% sale or ask them if they had trouble with checkout."
+                      helpText="Tell representatives what language or strategies to use when contacting your customers."
                     />
 
                     <Box paddingBlockStart="200">
