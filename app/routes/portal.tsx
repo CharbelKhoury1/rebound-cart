@@ -13,7 +13,7 @@ export const links: LinksFunction = () => [
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     return json({
-        apiKey: process.env.SHOPIFY_API_KEY || "",
+        apiKey: (await import("../config.server")).appConfig.shopify.apiKey,
     });
 };
 

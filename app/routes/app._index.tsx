@@ -1,5 +1,5 @@
 import { json, type ActionFunctionArgs, type LoaderFunctionArgs } from "@remix-run/node";
-import { useActionData, useLoaderData, useFetcher } from "@remix-run/react";
+import { useActionData, useLoaderData, useFetcher, useRouteError, isRouteErrorResponse } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -24,140 +24,57 @@ import {
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
-import db from "../db.server";
+import { resolveUserContext } from "../services/roles.server";
+import {
+  getPlatformAdminDashboardStats,
+  getSalesRepDashboardStats,
+  getStoreOwnerDashboard,
+} from "../services/checkouts.server";
 import { syncCheckouts } from "../utils/sync.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
-  const email = (session as any).email;
+  const { userRole, platformUser } = await resolveUserContext(session as any);
 
-  const PLATFORM_ADMIN_EMAIL = process.env.PLATFORM_ADMIN_EMAIL || "admin@reboundcart.com";
-  const isAdmin = email ? email === PLATFORM_ADMIN_EMAIL : false;
-
-  const platformUser = email ? await db.platformUser.findUnique({
-    where: { email },
-  }) : null;
-  const isRep = platformUser?.role === "SALES_REP" && platformUser?.status === "ACTIVE";
-
-  // Role: Platform Admin
-  if (isAdmin) {
-    const [totalStores, totalReps, totalCheckouts, totalRecovered] = await Promise.all([
-      db.shopSettings.count(),
-      db.platformUser.count({ where: { role: "SALES_REP" } }),
-      db.abandonedCheckout.count(),
-      db.abandonedCheckout.count({ where: { status: "RECOVERED" } }),
-    ]);
-
-    const globalCommission = await db.commission.aggregate({
-      _sum: { commissionAmount: true, platformFee: true },
-    });
-
-    return json({
-      userRole: "ADMIN",
-      stats: {
-        totalStores,
-        totalReps,
-        totalCheckouts,
-        totalRecovered,
-        totalEarnings: Number(globalCommission._sum.commissionAmount || 0),
-        platformFees: Number(globalCommission._sum.platformFee || 0),
-        recoveryRate: totalCheckouts > 0 ? (totalRecovered / totalCheckouts) * 100 : 0,
-      }
-    });
+  if (userRole === "ADMIN") {
+    const stats = await getPlatformAdminDashboardStats();
+    return json({ userRole, stats });
   }
 
-  // Role: Sales Rep
-  if (isRep && platformUser) {
-    const claimedCount = await db.abandonedCheckout.count({ where: { claimedById: platformUser.id } });
-    const recoveredCount = await db.abandonedCheckout.count({
-      where: { claimedById: platformUser.id, status: "RECOVERED" }
-    });
-    const commissionStats = await db.commission.aggregate({
-      where: { repId: platformUser.id },
-      _sum: { commissionAmount: true }
-    });
-
+  if (userRole === "REP" && platformUser) {
+    const stats = await getSalesRepDashboardStats(platformUser.id);
     return json({
-      userRole: "REP",
+      userRole,
       salesRep: platformUser,
-      stats: {
-        totalCheckouts: claimedCount,
-        recoveredCheckouts: recoveredCount,
-        recoveryRate: claimedCount > 0 ? (recoveredCount / claimedCount) * 100 : 0,
-        totalEarnings: Number(commissionStats._sum.commissionAmount || 0),
-      }
+      stats,
     });
   }
 
   // Default Role: Store Owner
-  let settings = await db.shopSettings.findUnique({ where: { shop } });
-  if (!settings) {
-    settings = await db.shopSettings.create({
-      data: { shop, commissionRate: 10.0 },
-    });
-  }
-
-  let totalAbandoned = await db.abandonedCheckout.count({ where: { shop } });
+  let totalAbandoned = await getStoreOwnerDashboard(shop).then(
+    (data) => data.stats.totalAbandoned,
+  );
 
   // If no checkouts are found, perform an initial sync
   if (totalAbandoned === 0) {
     const { admin } = await authenticate.admin(request);
     await syncCheckouts(admin, shop);
     // Recount after sync
-    totalAbandoned = await db.abandonedCheckout.count({ where: { shop } });
+    totalAbandoned = await getStoreOwnerDashboard(shop).then(
+      (data) => data.stats.totalAbandoned,
+    );
   }
 
-  const totalRecovered = await db.abandonedCheckout.count({ where: { shop, status: "RECOVERED" } });
-  const commissions = await db.commission.findMany({
-    where: { checkout: { shop } },
-    select: { commissionAmount: true },
-  });
-  const totalCommissionPaid = commissions.reduce((sum, c) => sum + Number(c.commissionAmount), 0);
-
-  const now = new Date();
-  const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const recoveredThisMonthCheckouts = await db.abandonedCheckout.findMany({
-    where: { shop, status: "RECOVERED", updatedAt: { gte: firstDayOfMonth } },
-    select: { totalPrice: true }
-  });
-  const revenueRecoveredMonth = recoveredThisMonthCheckouts.reduce((sum, c) => sum + Number(c.totalPrice), 0);
-
-  const recentCheckouts = await db.abandonedCheckout.findMany({
-    where: { shop },
-    orderBy: { createdAt: "desc" },
-    take: 5,
-    include: { claimedBy: true },
-  });
-
-  // Fetch some platform insights for the owner to make it feel like a "network"
-  const topReps = await db.platformUser.findMany({
-    where: { role: "SALES_REP", status: "ACTIVE" },
-    take: 3,
-    orderBy: { createdAt: "desc" }, // In a real app, this would be by performance
-    select: { firstName: true, lastName: true, tier: true, experience: true },
-  });
-
-  const pendingClaimsCount = await db.abandonedCheckout.count({
-    where: { shop, status: "ABANDONED", claimedById: null }
-  });
-
-  const setupComplete = settings.commissionRate.toNumber() !== 10.0 || totalAbandoned > 0;
+  const ownerDashboard = await getStoreOwnerDashboard(shop);
 
   return json({
     userRole: "OWNER",
-    settings,
-    stats: {
-      totalAbandoned,
-      totalRecovered,
-      recoveryRate: totalAbandoned > 0 ? (totalRecovered / totalAbandoned) * 100 : 0,
-      totalCommissionPaid,
-      revenueRecoveredMonth,
-      pendingClaimsCount,
-    },
-    recentCheckouts,
-    topReps,
-    setupComplete,
+    settings: ownerDashboard.settings,
+    stats: ownerDashboard.stats,
+    recentCheckouts: ownerDashboard.recentCheckouts,
+    topReps: ownerDashboard.topReps,
+    setupComplete: ownerDashboard.setupComplete,
     recentEvents: [
       { id: 1, type: "claim", rep: "Sarah J.", amount: "$120.00", time: "5m ago" },
       { id: 2, type: "recovery", rep: "Mike D.", amount: "$85.50", time: "12m ago" },
@@ -495,6 +412,27 @@ export default function Index() {
             </BlockStack>
           </Card>
         </Box>
+      </BlockStack>
+    </Page>
+  );
+}
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+
+  let message = "Something went wrong loading your dashboard.";
+  if (isRouteErrorResponse(error)) {
+    message = `Failed to load dashboard (${error.status} ${error.statusText}).`;
+  } else if (error instanceof Error) {
+    message = error.message;
+  }
+
+  return (
+    <Page title="Dashboard">
+      <BlockStack gap="400">
+        <Banner tone="critical" title="Unable to load dashboard">
+          <p>{message}</p>
+        </Banner>
       </BlockStack>
     </Page>
   );

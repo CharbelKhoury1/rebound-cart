@@ -1,37 +1,15 @@
 import "@shopify/shopify-app-remix/adapters/node";
-import {
-  ApiVersion,
-  AppDistribution,
-  shopifyApp,
-} from "@shopify/shopify-app-remix/server";
+import { AppDistribution, shopifyApp } from "@shopify/shopify-app-remix/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
-
-// Validate required environment variables
-const requiredEnvVars = [
-  "SHOPIFY_API_KEY",
-  "SHOPIFY_API_SECRET",
-  "SHOPIFY_APP_URL"
-];
-
-const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
-
-if (missingEnvVars.length > 0) {
-  throw new Error(
-    `Missing required environment variables: ${missingEnvVars.join(", ")}`
-  );
-}
-
-// Default scopes if not provided in environment
-const defaultScopes = "read_orders,read_checkouts,write_orders,write_checkouts,read_products,read_customers";
-const scopes = process.env.SCOPES || defaultScopes;
+import { appConfig } from "./config.server";
 
 const shopify = shopifyApp({
-  apiKey: process.env.SHOPIFY_API_KEY!,
-  apiSecretKey: process.env.SHOPIFY_API_SECRET!,
-  apiVersion: ApiVersion.January25,
-  scopes: scopes.split(","),
-  appUrl: process.env.SHOPIFY_APP_URL!,
+  apiKey: appConfig.shopify.apiKey,
+  apiSecretKey: appConfig.shopify.apiSecretKey,
+  apiVersion: appConfig.shopify.apiVersion,
+  scopes: appConfig.shopify.scopes,
+  appUrl: appConfig.shopify.appUrl,
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
@@ -45,7 +23,7 @@ const shopify = shopifyApp({
 });
 
 export default shopify;
-export const apiVersion = ApiVersion.January25;
+export const apiVersion = appConfig.shopify.apiVersion;
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
 export const authenticate = shopify.authenticate;
 export const unauthenticated = shopify.unauthenticated;

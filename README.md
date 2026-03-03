@@ -83,11 +83,11 @@ Please read the [documentation for @shopify/shopify-app-remix](https://www.npmjs
 
 ### Application Storage
 
-This template uses [Prisma](https://www.prisma.io/) to store session data, by default using an [SQLite](https://www.sqlite.org/index.html) database.
-The database is defined as a Prisma schema in `prisma/schema.prisma`.
+This app uses [Prisma](https://www.prisma.io/) to store both Shopify sessions and all Rebound Cart domain data (abandoned checkouts, communications, commissions, platform users).
+By default it uses an [SQLite](https://www.sqlite.org/index.html) database, defined in `prisma/schema.prisma`.
 
-This use of SQLite works in production if your app runs as a single instance.
-The database that works best for you depends on the data your app needs and how it is queried.
+SQLite works well for development and for simple single-instance deployments.
+For any production environment with higher write throughput or multiple app instances, you should plan to move to a managed SQL database such as PostgreSQL or MySQL.
 You can run your database of choice on a server yourself or host it with a SaaS company.
 Here's a short list of databases providers that provide a free tier to get started:
 
@@ -98,7 +98,22 @@ Here's a short list of databases providers that provide a free tier to get start
 | Redis      | Key-value        | [Digital Ocean](https://www.digitalocean.com/products/managed-databases-redis), [Amazon MemoryDB](https://aws.amazon.com/memorydb/)                                                                                                        |
 | MongoDB    | NoSQL / Document | [Digital Ocean](https://www.digitalocean.com/products/managed-databases-mongodb), [MongoDB Atlas](https://www.mongodb.com/atlas/database)                                                                                                  |
 
-To use one of these, you can use a different [datasource provider](https://www.prisma.io/docs/reference/api-reference/prisma-schema-reference#datasource) in your `schema.prisma` file, or a different [SessionStorage adapter package](https://github.com/Shopify/shopify-api-js/blob/main/packages/shopify-api/docs/guides/session-storage.md).
+To use one of these, update the `datasource` block in `prisma/schema.prisma` and your `DATABASE_URL`/connection string, then run Prisma migrations.
+If you are deploying this app to production, you should also:
+
+- Run a simple load test (or staged rollout) to validate that checkout webhooks and order webhooks are processed within acceptable latency.
+- Ensure your database plan includes proper backups and connection pooling.
+
+Webhooks and data integrity:
+
+- Webhook routes under `app/routes/webhooks.*.tsx` log the `topic` and `shop` for each event and always return a clear 2xx or 5xx response.
+- `AbandonedCheckout.checkoutId` and `Commission.orderId` are unique in `schema.prisma`, and webhook handlers use `upsert` semantics, so repeated events for the same checkout/order update existing rows instead of creating duplicates.
+- You can trigger and replay webhook events locally using the Shopify CLI, for example:
+  - `shopify webhook trigger CHECKOUTS_CREATE`
+  - `shopify webhook trigger ORDERS_CREATE`
+- To backfill or re-sync abandoned checkouts for a shop, either:
+  - Use the \"Sync\" primary actions in `/app` or `/app/checkouts` (these call `syncCheckouts` for the current shop), or
+  - Run the `sync_now.ts` helper script from the project root to invoke `syncCheckouts` via the Admin API.
 
 ### Build
 

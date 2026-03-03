@@ -6,7 +6,7 @@ import { NavMenu } from "@shopify/app-bridge-react";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 
 import shopify, { authenticate, registerWebhooks } from "../shopify.server";
-import db from "../db.server";
+import { appConfig } from "../config.server";
 
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
@@ -17,7 +17,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   await registerWebhooks({ session });
 
   return {
-    apiKey: process.env.SHOPIFY_API_KEY || "",
+    apiKey: appConfig.shopify.apiKey,
   };
 };
 

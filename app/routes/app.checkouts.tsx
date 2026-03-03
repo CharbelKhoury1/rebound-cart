@@ -1,5 +1,5 @@
 import { json, type LoaderFunctionArgs, type ActionFunctionArgs } from "@remix-run/node";
-import { useLoaderData, useFetcher } from "@remix-run/react";
+import { useLoaderData, useFetcher, useRouteError, isRouteErrorResponse } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -23,7 +23,7 @@ import {
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
-import db from "../db.server";
+import { getStoreCheckoutsWithStats } from "../services/checkouts.server";
 import { useState, useEffect } from "react";
 import { syncCheckouts } from "../utils/sync.server";
 
@@ -52,31 +52,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const status = url.searchParams.get("status") || undefined;
   const claimed = url.searchParams.get("claimed") || undefined;
 
-  let whereClause: any = { shop };
-
-  if (status) {
-    whereClause.status = status;
-  }
-
-  if (claimed === "true") {
-    whereClause.claimedById = { not: null };
-  } else if (claimed === "false") {
-    whereClause.claimedById = null;
-  }
-
-  const checkouts = await db.abandonedCheckout.findMany({
-    where: whereClause,
-    orderBy: { createdAt: "desc" },
-    include: { claimedBy: true },
-    take: 100,
+  const { checkouts, stats } = await getStoreCheckoutsWithStats({
+    shop,
+    status,
+    claimed,
   });
-
-  const stats = {
-    total: await db.abandonedCheckout.count({ where: { shop } }),
-    abandoned: await db.abandonedCheckout.count({ where: { shop, status: "ABANDONED" } }),
-    recovered: await db.abandonedCheckout.count({ where: { shop, status: "RECOVERED" } }),
-    unclaimed: await db.abandonedCheckout.count({ where: { shop, claimedById: null } }),
-  };
 
   return json({ checkouts, stats });
 };
@@ -277,6 +257,27 @@ export default function CheckoutsPage() {
           )}
         </Modal.Section>
       </Modal>
+    </Page>
+  );
+}
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+
+  let message = "Something went wrong loading checkouts.";
+  if (isRouteErrorResponse(error)) {
+    message = `Failed to load checkouts (${error.status} ${error.statusText}).`;
+  } else if (error instanceof Error) {
+    message = error.message;
+  }
+
+  return (
+    <Page title="Abandoned Checkouts">
+      <BlockStack gap="400">
+        <Banner tone="critical" title="Unable to load abandoned checkouts">
+          <p>{message}</p>
+        </Banner>
+      </BlockStack>
     </Page>
   );
 }

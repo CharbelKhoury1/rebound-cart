@@ -19,17 +19,14 @@ import {
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
+import { requirePlatformAdmin } from "../services/roles.server";
 import db from "../db.server";
 import { useState } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
 
-  // Platform admin access control
-  const PLATFORM_ADMIN_EMAIL = process.env.PLATFORM_ADMIN_EMAIL || "admin@reboundcart.com";
-  if ((session as any).email !== PLATFORM_ADMIN_EMAIL) {
-    throw new Response("Unauthorized: Platform admin access required", { status: 403 });
-  }
+  requirePlatformAdmin(session as any);
 
   const platformUsers = await db.platformUser.findMany({
     orderBy: { createdAt: "desc" },
@@ -51,10 +48,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  const PLATFORM_ADMIN_EMAIL = process.env.PLATFORM_ADMIN_EMAIL || "admin@reboundcart.com";
-  if ((session as any).email !== PLATFORM_ADMIN_EMAIL) {
-    throw new Response("Unauthorized", { status: 403 });
-  }
+  requirePlatformAdmin(session as any);
 
   const formData = await request.formData();
   const intent = formData.get("intent");
