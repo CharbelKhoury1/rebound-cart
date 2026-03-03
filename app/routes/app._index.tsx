@@ -300,7 +300,7 @@ export default function Index() {
           <BlockStack gap="200">
             <InlineStack align="space-between" blockAlign="center">
               <BlockStack gap="100">
-                <Text as="h1" variant="heading3xl" tone="magic">Welcome back!</Text>
+                <Text as="h1" variant="heading2xl" tone="magic">Welcome back!</Text>
                 <Text as="p" variant="bodyLg" tone="subdued">
                   Your store's recovery system is active and monitoring checkouts.
                 </Text>
