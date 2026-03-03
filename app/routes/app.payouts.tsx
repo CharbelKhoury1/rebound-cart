@@ -44,7 +44,9 @@ export default function PayoutsPage() {
         `${Number(c.totalAmount).toFixed(2)} ${c.checkout.currency}`,
         `${Number(c.commissionAmount).toFixed(2)} ${c.checkout.currency}`,
         `${Number(c.platformFee || 0).toFixed(2)} ${c.checkout.currency}`,
-        <Badge tone="success">Settled</Badge>,
+        <Badge tone={c.status === "PAID" ? "success" : "attention"}>
+            {c.status}
+        </Badge>,
         new Date(c.createdAt).toLocaleDateString(),
     ]);
 

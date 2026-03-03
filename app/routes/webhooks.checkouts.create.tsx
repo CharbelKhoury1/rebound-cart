@@ -8,7 +8,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   console.log(`Received ${topic} webhook for ${shop}`);
 
   // Payload for checkouts/create usually includes id, email, token, total_price, etc.
-  const { id, email, token, total_price, currency } = payload;
+  const { id, email, token, total_price, currency, abandoned_checkout_url } = payload;
 
   try {
     await db.abandonedCheckout.upsert({
@@ -17,6 +17,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         totalPrice: total_price,
         currency: currency,
         email: email || null,
+        status: "ABANDONED",
+        checkoutUrl: abandoned_checkout_url || null,
+        cartToken: token,
       },
       create: {
         shop,
@@ -25,6 +28,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         email: email || null,
         totalPrice: total_price,
         currency,
+        checkoutUrl: abandoned_checkout_url || null,
         status: "ABANDONED",
       },
     });

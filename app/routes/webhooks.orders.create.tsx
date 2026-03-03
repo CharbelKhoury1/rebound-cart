@@ -27,12 +27,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     try {
         await db.$transaction(async (tx) => {
-            // 1. Find the abandoned checkout
+            // 1. Find the abandoned checkout and shop settings
             const abandonedCheckout = await tx.abandonedCheckout.findUnique({
                 where: { checkoutId: String(checkout_id) },
                 include: {
                     claimedBy: {
-                        select: { id: true, tier: true, commissionRate: true },
+                        select: { id: true, tier: true, commissionRate: true, firstName: true, lastName: true, email: true },
                     },
                 },
             });
@@ -40,6 +40,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             if (!abandonedCheckout || abandonedCheckout.status === "RECOVERED") {
                 return; // Already processed or not found
             }
+
+            const shopSettings = await tx.shopSettings.findUnique({
+                where: { shop },
+            });
 
             // 2. Mark checkout as recovered
             await tx.abandonedCheckout.update({
@@ -50,27 +54,26 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 },
             });
 
-            // 3. If claimed by a rep, calculate commission using tier rate
+            // 3. If claimed by a rep, calculate commission
             if (abandonedCheckout.claimedById && abandonedCheckout.claimedBy) {
                 const rep = abandonedCheckout.claimedBy;
                 const orderTotal = Number(total_price);
 
-                // Use rep's custom commission rate if set, else use tier rate
-                const commissionRate =
-                    rep.commissionRate !== null && rep.commissionRate !== undefined
-                        ? Number(rep.commissionRate)
-                        : TIER_RATES[rep.tier ?? "BRONZE"] ?? 15;
+                // PRIORITY:
+                // 1. Use ShopSettings commissionRate (The Merchant's offer)
+                // 2. Fallback to 10% if not set
+                const baseRate = shopSettings?.commissionRate ? Number(shopSettings.commissionRate) : 10;
 
-                const commissionAmount = (orderTotal * commissionRate) / 100;
+                const totalCommissionPaidByMerchant = (orderTotal * baseRate) / 100;
 
-                // Platform fee is calculated on the commission amount
-                const platformFeeAmount = (commissionAmount * PLATFORM_FEE_RATE) / 100;
-                const netCommission = commissionAmount - platformFeeAmount;
+                // Platform fee is calculated on the commission amount (e.g. 5% of the 10%)
+                const platformFeeAmount = (totalCommissionPaidByMerchant * PLATFORM_FEE_RATE) / 100;
+                const netCommissionForRep = totalCommissionPaidByMerchant - platformFeeAmount;
 
                 await tx.commission.upsert({
                     where: { orderId: String(id) },
                     update: {
-                        commissionAmount: netCommission,
+                        commissionAmount: netCommissionForRep,
                         totalAmount: orderTotal,
                         platformFee: platformFeeAmount,
                     },
@@ -78,7 +81,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                         orderId: String(id),
                         orderNumber: String(order_number),
                         totalAmount: orderTotal,
-                        commissionAmount: netCommission,
+                        commissionAmount: netCommissionForRep,
                         platformFee: platformFeeAmount,
                         checkoutId: abandonedCheckout.id,
                         repId: abandonedCheckout.claimedById,
@@ -92,9 +95,35 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                     data: { platformFee: platformFeeAmount },
                 });
 
+                // 4. ADD TAGS TO SHOPIFY ORDER
+                try {
+                    const { admin } = await authenticate.webhook(request);
+                    if (admin) {
+                        const repName = `${rep.firstName || ""} ${rep.lastName || ""}`.trim() || rep.email;
+                        await admin.graphql(
+                            `#graphql
+                            mutation addTags($id: ID!, $tags: [String!]!) {
+                              tagsAdd(id: $id, tags: $tags) {
+                                userErrors { field message }
+                              }
+                            }`,
+                            {
+                                variables: {
+                                    id: `gid://shopify/Order/${id}`,
+                                    tags: ["ReboundCart", "Rebound-Recovered", `Rep: ${repName}`],
+                                },
+                            }
+                        );
+                        console.log(`Tags added to order ${id}`);
+                    }
+                } catch (tagError) {
+                    console.error("Failed to add tags to order:", tagError);
+                    // Don't fail the whole transaction for tags
+                }
+
                 console.log(
                     `Commission created for order ${order_number}: ` +
-                    `$${netCommission.toFixed(2)} (${commissionRate}% rate, $${platformFeeAmount.toFixed(2)} platform fee)`
+                    `$${netCommissionForRep.toFixed(2)} (Rate: ${baseRate}%, Fee: $${platformFeeAmount.toFixed(2)})`
                 );
             }
         });

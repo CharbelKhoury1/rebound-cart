@@ -18,6 +18,7 @@ import {
   Modal,
   ChoiceList,
   FormLayout,
+  Box,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -160,7 +161,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 export default function Index() {
   const data = useLoaderData<typeof loader>();
-  const { userRole, stats } = data as any;
+  const { userRole, stats, recentCheckouts, settings } = data as any;
   const fetcher = useFetcher();
 
   // ── ADMIN VIEW ───────────────────────────────────────────────
@@ -275,84 +276,166 @@ export default function Index() {
   }
 
   // ── OWNER VIEW (Current Store Admin) ───────────────────────────
-  const { recentCheckouts } = data as any;
-  const checkoutRows = recentCheckouts?.map((checkout: any) => [
+  const cRows = recentCheckouts?.map((checkout: any) => [
     checkout.checkoutId.slice(-8) + "...",
     checkout.email || "N/A",
     `${checkout.totalPrice} ${checkout.currency}`,
-    <Badge tone={checkout.status === "RECOVERED" ? "success" : "attention"}>
+    <Badge key={checkout.id} tone={checkout.status === "RECOVERED" ? "success" : "attention"}>
       {checkout.status}
     </Badge>,
-    checkout.claimedBy ? `${checkout.claimedBy.firstName} ${checkout.claimedBy.lastName}` : "Unclaimed",
+    checkout.claimedBy ? `${checkout.claimedBy.firstName} ${checkout.claimedBy.lastName}` : "Marketplace",
   ]) || [];
 
   return (
-    <Page>
-      <TitleBar title="Merchant Dashboard" />
-      <BlockStack gap="500">
+    <Page fullWidth>
+      <TitleBar title="ReboundCart | Merchant Workspace" />
+      <BlockStack gap="600">
+        {/* Premium Hero Section */}
+        <Box
+          padding="600"
+          background="bg-surface"
+          borderRadius="300"
+          shadow="100"
+        >
+          <BlockStack gap="200">
+            <InlineStack align="space-between" blockAlign="center">
+              <BlockStack gap="100">
+                <Text as="h1" variant="heading3xl" tone="magic">Welcome back!</Text>
+                <Text as="p" variant="bodyLg" tone="subdued">
+                  Your store's recovery system is active and monitoring checkouts.
+                </Text>
+              </BlockStack>
+              <InlineStack gap="200" blockAlign="center">
+                <div style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  background: "#10b981",
+                  boxShadow: "0 0 0 2px rgba(16, 185, 129, 0.2)",
+                  animation: "pulse 2s infinite"
+                }} />
+                <Badge tone="success">Live Sync Active</Badge>
+              </InlineStack>
+            </InlineStack>
+          </BlockStack>
+        </Box>
+
         <Layout>
+          {/* Main Stats Row */}
           <Layout.Section>
             <Grid>
-              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}>
-                <Card>
-                  <BlockStack gap="200">
-                    <Text as="h2" variant="headingSm" tone="subdued">Total Abandoned</Text>
-                    <Text as="p" variant="headingLg" fontWeight="bold">{stats.totalAbandoned}</Text>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                <Card padding="500">
+                  <BlockStack gap="400">
+                    <Text as="h2" variant="headingSm" tone="subdued">Abandoned</Text>
+                    <Text as="p" variant="heading2xl" fontWeight="bold">{stats.totalAbandoned}</Text>
+                    <div style={{ height: 4, width: "100%", background: "#f1f2f4", borderRadius: 2 }}>
+                      <div style={{ height: "100%", width: "100%", background: "#6366f1", borderRadius: 2 }} />
+                    </div>
                   </BlockStack>
                 </Card>
               </Grid.Cell>
-              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}>
-                <Card>
-                  <BlockStack gap="200">
-                    <Text as="h2" variant="headingSm" tone="subdued">Total Recovered</Text>
-                    <Text as="p" variant="headingLg" fontWeight="bold" tone="success">{stats.totalRecovered}</Text>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                <Card padding="500">
+                  <BlockStack gap="400">
+                    <Text as="h2" variant="headingSm" tone="subdued">Recovered</Text>
+                    <Text as="p" variant="heading2xl" fontWeight="bold" tone="success">{stats.totalRecovered}</Text>
+                    <div style={{ height: 4, width: "100%", background: "#f1f2f4", borderRadius: 2 }}>
+                      <div style={{ height: "100%", width: `${stats.recoveryRate}%`, background: "#10b981", borderRadius: 2 }} />
+                    </div>
                   </BlockStack>
                 </Card>
               </Grid.Cell>
-              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}>
-                <Card>
-                  <BlockStack gap="200">
-                    <Text as="h2" variant="headingSm" tone="subdued">Revenue Recovered (MTD)</Text>
-                    <Text as="p" variant="headingLg" fontWeight="bold" tone="magic">${stats.revenueRecoveredMonth.toFixed(2)}</Text>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                <Card padding="500">
+                  <BlockStack gap="400">
+                    <Text as="h2" variant="headingSm" tone="subdued">Conversion Rate</Text>
+                    <Text as="p" variant="heading2xl" fontWeight="bold">{stats.recoveryRate.toFixed(1)}%</Text>
+                    <Text as="p" variant="bodyXs" tone="subdued">Platform Average: 12.4%</Text>
+                  </BlockStack>
+                </Card>
+              </Grid.Cell>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
+                <Card padding="500">
+                  <BlockStack gap="400">
+                    <Text as="h2" variant="headingSm" tone="subdued">Recovered Revenue</Text>
+                    <Text as="p" variant="heading2xl" fontWeight="bold" tone="magic">${stats.revenueRecoveredMonth.toFixed(2)}</Text>
+                    <Text as="p" variant="bodyXs" tone="subdued">This Month (MTD)</Text>
                   </BlockStack>
                 </Card>
               </Grid.Cell>
             </Grid>
           </Layout.Section>
 
+          {/* Configuration & Health */}
           <Layout.Section variant="oneThird">
-            <Card>
-              <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">My Store Settings</Text>
-                <Text as="p">Default Rep Commission: <strong>{(data as any).settings?.commissionRate}%</strong></Text>
-                <Button fullWidth url="/app/settings">Edit Settings</Button>
-              </BlockStack>
-            </Card>
+            <BlockStack gap="400">
+              <Card>
+                <BlockStack gap="400">
+                  <Text as="h2" variant="headingMd">System Status</Text>
+                  <Divider />
+                  <BlockStack gap="300">
+                    <InlineStack align="space-between">
+                      <Text as="span" tone="subdued">Commission Rate</Text>
+                      <Text as="span" fontWeight="bold">{settings?.commissionRate}%</Text>
+                    </InlineStack>
+                    <InlineStack align="space-between">
+                      <Text as="span" tone="subdued">Marketplace</Text>
+                      <Badge tone={settings?.isMarketplaceEnabled ? "success" : "attention"}>
+                        {settings?.isMarketplaceEnabled ? "Public" : "Private"}
+                      </Badge>
+                    </InlineStack>
+                  </BlockStack>
+                  <Button fullWidth url="/app/settings">Configuration Settings</Button>
+                </BlockStack>
+              </Card>
+
+              <Box padding="400" background="bg-surface-secondary" borderRadius="200">
+                <BlockStack gap="200">
+                  <Text as="h2" variant="headingSm">Network Status</Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Fully connected to the Rebound network. Data is being synced in real-time.
+                  </Text>
+                </BlockStack>
+              </Box>
+            </BlockStack>
           </Layout.Section>
 
+          {/* Activity Table */}
           <Layout.Section>
-            <Card>
-              <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">Recent Store Activity</Text>
-                <DataTable
-                  columnContentTypes={["text", "text", "text", "text", "text"]}
-                  headings={["Checkout ID", "Customer", "Amount", "Status", "Assigned Rep"]}
-                  rows={checkoutRows}
-                  hoverable
-                />
+            <Card padding="0">
+              <BlockStack gap="0">
+                <Box padding="400" borderBlockEndWidth="025" borderColor="border">
+                  <InlineStack align="space-between" blockAlign="center">
+                    <Text as="h2" variant="headingMd">Real-time Recovery Log</Text>
+                    <Button variant="plain" url="/app/checkouts">View Reports</Button>
+                  </InlineStack>
+                </Box>
+                {cRows.length === 0 ? (
+                  <Box padding="800">
+                    <Text as="p" alignment="center" tone="subdued">Waiting for new activity...</Text>
+                  </Box>
+                ) : (
+                  <DataTable
+                    columnContentTypes={["text", "text", "text", "numeric", "text"]}
+                    headings={["ID", "Customer", "Amount", "Status", "Representative"]}
+                    rows={cRows as any}
+                    hoverable
+                  />
+                )}
               </BlockStack>
             </Card>
           </Layout.Section>
         </Layout>
       </BlockStack>
+      <style dangerouslySetInnerHTML={{
+        __html: `
+        @keyframes pulse {
+          0% { opacity: 1; }
+          50% { opacity: 0.4; }
+          100% { opacity: 1; }
+        }
+      `}} />
     </Page>
-  );
-}
-
-function Box({ children, minWidth }: { children: React.ReactNode; minWidth?: string }) {
-  return (
-    <div style={{ flex: 1, minWidth: minWidth || "0" }}>
-      {children}
-    </div>
   );
 }
