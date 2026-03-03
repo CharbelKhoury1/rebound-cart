@@ -38,7 +38,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (result.success) {
       return json({ success: true, count: result.count });
     } else {
-      return json({ success: false, error: "Failed to sync checkouts" }, { status: 500 });
+      return json({ success: false, error: (result as any).error || "Failed to sync checkouts" }, { status: 500 });
     }
   }
 
