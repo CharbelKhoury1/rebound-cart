@@ -19,6 +19,8 @@ import {
   ChoiceList,
   FormLayout,
   Box,
+  Banner,
+  EmptyState,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -136,6 +138,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     select: { firstName: true, lastName: true, tier: true, experience: true },
   });
 
+  const pendingClaimsCount = await db.abandonedCheckout.count({
+    where: { shop, status: "ABANDONED", claimedById: null }
+  });
+
   const setupComplete = settings.commissionRate.toNumber() !== 10.0 || totalAbandoned > 0;
 
   return json({
@@ -147,6 +153,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       recoveryRate: totalAbandoned > 0 ? (totalRecovered / totalAbandoned) * 100 : 0,
       totalCommissionPaid,
       revenueRecoveredMonth,
+      pendingClaimsCount,
     },
     recentCheckouts,
     topReps,
@@ -306,289 +313,160 @@ export default function Index() {
   ]) || [];
 
   return (
-    <Page fullWidth>
-      <TitleBar title="ReboundCart | Merchant Workspace" />
-      <BlockStack gap="600">
-        {/* Premium Hero Section */}
-        <Box
-          padding="600"
-          background="bg-surface"
-          borderRadius="300"
-          shadow="100"
-        >
-          <BlockStack gap="200">
-            <InlineStack align="space-between" blockAlign="center">
-              <BlockStack gap="100">
-                <Text as="h1" variant="heading2xl" tone="magic">Welcome back!</Text>
-                <Text as="p" variant="bodyLg" tone="subdued">
-                  {setupComplete
-                    ? "Your store's recovery system is active and monitoring checkouts."
-                    : "Complete your setup to start recovering abandoned carts with professional reps."}
-                </Text>
-              </BlockStack>
-              <InlineStack gap="200" blockAlign="center">
-                <Button
-                  icon={isSyncing ? undefined : "refresh"}
-                  onClick={() => fetcher.submit({ intent: "sync" }, { method: "post" })}
-                  loading={isSyncing}
-                  variant="tertiary"
-                >
-                  {isSyncing ? "Syncing..." : "Sync Now"}
-                </Button>
-                <div style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: "50%",
-                  background: "#10b981",
-                  boxShadow: "0 0 0 2px rgba(16, 185, 129, 0.2)",
-                  animation: "pulse 2s infinite"
-                }} />
-                <Badge tone="success">Live Sync Active</Badge>
-              </InlineStack>
-            </InlineStack>
-          </BlockStack>
-        </Box>
-
+    <Page
+      title="Dashboard"
+      primaryAction={{
+        content: isSyncing ? "Syncing..." : "Sync Store Data",
+        onAction: () => fetcher.submit({ intent: "sync" }, { method: "post" }),
+        loading: isSyncing,
+      }}
+    >
+      <BlockStack gap="500">
         {!setupComplete && (
-          <Card>
-            <BlockStack gap="400">
-              <Text as="h2" variant="headingMd">🚀 Quick Start Checklist</Text>
-              <Divider />
-              <Grid>
-                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
-                  <InlineStack gap="200" blockAlign="center">
-                    <Icon source="checkmark" tone="success" />
-                    <Text as="span">Install ReboundCart</Text>
-                  </InlineStack>
-                </Grid.Cell>
-                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
-                  <InlineStack gap="200" blockAlign="center">
-                    <Icon source={stats.totalAbandoned > 0 ? "checkmark" : "circle"} tone={stats.totalAbandoned > 0 ? "success" : "subdued"} />
-                    <Text as="span">Sync Checkouts</Text>
-                  </InlineStack>
-                </Grid.Cell>
-                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
-                  <InlineStack gap="200" blockAlign="center">
-                    <Icon source={settings.commissionRate !== 10.0 ? "checkmark" : "circle"} tone={settings.commissionRate !== 10.0 ? "success" : "subdued"} />
-                    <Text as="span">Set Commission Rate</Text>
-                  </InlineStack>
-                </Grid.Cell>
-                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
-                  <InlineStack gap="200" blockAlign="center">
-                    <Icon source="circle" tone="subdued" />
-                    <Text as="span">First Recovery</Text>
-                  </InlineStack>
-                </Grid.Cell>
-              </Grid>
-            </BlockStack>
-          </Card>
+          <Banner
+            title="Complete your setup to start recovering revenue"
+            tone="info"
+            onDismiss={() => { }}
+          >
+            <p>Sync your checkouts and set your commission rate to activate the Rebound representative network.</p>
+          </Banner>
         )}
 
         <Layout>
-          {/* Main Stats Row */}
+          {/* Row 1: Unified Outcome Metrics */}
           <Layout.Section>
             <Grid>
-              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
-                <Card padding="500">
-                  <BlockStack gap="400">
-                    <Text as="h2" variant="headingSm" tone="subdued">Abandoned</Text>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3 }}>
+                <Card>
+                  <BlockStack gap="100">
+                    <Text as="h2" variant="headingSm" tone="subdued">Total Abandoned</Text>
                     <Text as="p" variant="heading2xl" fontWeight="bold">{stats.totalAbandoned}</Text>
-                    <div style={{ height: 4, width: "100%", background: "#f1f2f4", borderRadius: 2 }}>
-                      <div style={{ height: "100%", width: "100%", background: "#6366f1", borderRadius: 2 }} />
-                    </div>
                   </BlockStack>
                 </Card>
               </Grid.Cell>
-              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
-                <Card padding="500">
-                  <BlockStack gap="400">
+              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3 }}>
+                <Card>
+                  <BlockStack gap="100">
                     <Text as="h2" variant="headingSm" tone="subdued">Recovered</Text>
-                    <Text as="p" variant="heading2xl" fontWeight="bold" tone="success">{stats.totalRecovered}</Text>
-                    <div style={{ height: 4, width: "100%", background: "#f1f2f4", borderRadius: 2 }}>
-                      <div style={{ height: "100%", width: `${stats.recoveryRate}%`, background: "#10b981", borderRadius: 2 }} />
-                    </div>
+                    <Text as="p" variant="heading2xl" fontWeight="bold" tone="success">{stats.totalRecovered || 0}</Text>
                   </BlockStack>
                 </Card>
               </Grid.Cell>
-              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
-                <Card padding="500">
-                  <BlockStack gap="400">
-                    <Text as="h2" variant="headingSm" tone="subdued">Conversion Rate</Text>
-                    <Text as="p" variant="heading2xl" fontWeight="bold">{stats.recoveryRate.toFixed(1)}%</Text>
-                    <Text as="p" variant="bodyXs" tone="subdued">Platform Average: 12.4%</Text>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3 }}>
+                <Card>
+                  <BlockStack gap="100">
+                    <Text as="h2" variant="headingSm" tone="subdued">Pending Claims</Text>
+                    <Text as="p" variant="heading2xl" fontWeight="bold" tone="caution">{stats.pendingClaimsCount || 0}</Text>
                   </BlockStack>
                 </Card>
               </Grid.Cell>
-              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
-                <Card padding="500">
-                  <BlockStack gap="400">
-                    <Text as="h2" variant="headingSm" tone="subdued">Recovered Revenue</Text>
-                    <Text as="p" variant="heading2xl" fontWeight="bold" tone="success">${stats.revenueRecoveredMonth.toFixed(2)}</Text>
-                    <Text as="p" variant="bodyXs" tone="subdued">This Month (MTD)</Text>
-                  </BlockStack>
-                </Card>
-              </Grid.Cell>
-              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
-                <Card padding="500" background="bg-surface-brand">
-                  <BlockStack gap="200">
-                    <Text as="h2" variant="headingSm">Net App ROI</Text>
-                    <Text as="p" variant="heading2xl" fontWeight="bold">
-                      +${(stats.revenueRecoveredMonth - stats.totalCommissionPaid).toFixed(2)}
+              <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3 }}>
+                <Card>
+                  <BlockStack gap="100">
+                    <Text as="h2" variant="headingSm" tone="subdued">Net Profit (ROI)</Text>
+                    <Text as="p" variant="heading2xl" fontWeight="bold" tone="success">
+                      +${(stats.revenueRecoveredMonth - stats.totalCommissionPaid).toFixed(0)}
                     </Text>
-                    <Text as="p" variant="bodyXs" tone="subdued">Profit after commissions</Text>
                   </BlockStack>
                 </Card>
               </Grid.Cell>
             </Grid>
           </Layout.Section>
 
-          {/* Configuration & Health */}
-          <Layout.Section variant="oneThird">
-            <BlockStack gap="400">
-              <Card>
-                <BlockStack gap="400">
-                  <Text as="h2" variant="headingMd">System Status</Text>
-                  <Divider />
-                  <BlockStack gap="300">
-                    <InlineStack align="space-between">
-                      <Text as="span" tone="subdued">Commission Rate</Text>
-                      <Text as="span" fontWeight="bold">{settings?.commissionRate}%</Text>
-                    </InlineStack>
-                    <InlineStack align="space-between">
-                      <Text as="span" tone="subdued">Marketplace</Text>
-                      <Badge tone={settings?.isMarketplaceEnabled ? "success" : "attention"}>
-                        {settings?.isMarketplaceEnabled ? "Public" : "Private"}
-                      </Badge>
-                    </InlineStack>
-                  </BlockStack>
-                  <Button fullWidth url="/app/settings">Configuration Settings</Button>
-                </BlockStack>
-              </Card>
-
-              <Box padding="400" background="bg-surface-secondary" borderRadius="200">
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingSm">Network Status</Text>
-                  <Text as="p" variant="bodySm" tone="subdued">
-                    Fully connected to the Rebound network. Data is being synced in real-time.
-                  </Text>
-                </BlockStack>
-              </Box>
-
-              <Card>
-                <BlockStack gap="400">
-                  <Text as="h2" variant="headingMd">🏆 Top Network Reps</Text>
-                  <Divider />
-                  <BlockStack gap="300">
-                    {topReps && topReps.length > 0 ? topReps.map((rep: any, i: number) => (
-                      <InlineStack key={i} align="space-between" blockAlign="center">
-                        <BlockStack gap="050">
-                          <Text as="span" fontWeight="bold">{rep.firstName} {rep.lastName?.charAt(0)}.</Text>
-                          <InlineStack gap="200">
-                            <Badge tone={rep.tier === "PLATINUM" ? "magic" : rep.tier === "GOLD" ? "info" : "attention"}>
-                              {rep.tier || "SILVER"}
-                            </Badge>
-                            <Text as="span" tone="subdued">{rep.experience} Years Experience</Text>
-                          </InlineStack>
-                        </BlockStack>
-                      </InlineStack>
-                    )) : (
-                      <Text as="p" tone="subdued">Connecting to Rebound Network...</Text>
-                    )}
-                  </BlockStack>
-                  <Button fullWidth variant="plain">Become a Representative</Button>
-                </BlockStack>
-              </Card>
-
-              <Card background="bg-surface-brand">
-                <BlockStack gap="300">
-                  <Text as="h2" variant="headingSm">AI Recovery Insight</Text>
-                  <Text as="p" variant="bodySm">
-                    High value carts ($200+) currently have a 15% higher recovery rate when contacted within 2 hours.
-                  </Text>
-                </BlockStack>
-              </Card>
-
-              <Card>
-                <BlockStack gap="400">
-                  <Text as="h2" variant="headingMd">📈 Performance Forecast</Text>
-                  <Divider />
-                  <BlockStack gap="200">
-                    <Text as="p" variant="bodySm" tone="subdued">Based on current trends, you are on track to recover:</Text>
-                    <Text as="p" variant="headingLg" tone="success">${(stats.revenueRecoveredMonth * 1.2).toFixed(2)}</Text>
-                    <Text as="p" variant="bodyXs" tone="subdued">Estimated by end of month (+20%)</Text>
-                  </BlockStack>
-                </BlockStack>
-              </Card>
-            </BlockStack>
-          </Layout.Section>
-
-          {/* Activity Table */}
+          {/* Row 2: Full-Width Clean Table Card */}
           <Layout.Section>
             <Card padding="0">
-              <BlockStack gap="0">
-                <Box padding="400" borderBlockEndWidth="025" borderColor="border">
-                  <InlineStack align="space-between" blockAlign="center">
-                    <Text as="h2" variant="headingMd">Real-time Recovery Log</Text>
-                    <Button variant="plain" url="/app/checkouts">View Reports</Button>
+              <Box padding="400" borderBlockEndWidth="025" borderColor="border">
+                <Text as="h2" variant="headingMd">My Store's Recent Activity</Text>
+              </Box>
+              {cRows.length === 0 ? (
+                <EmptyState
+                  heading="No recovery activity yet"
+                  image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+                >
+                  <p>Once representatives start claiming carts, they will appear here.</p>
+                </EmptyState>
+              ) : (
+                <DataTable
+                  columnContentTypes={["text", "text", "text", "numeric", "text"]}
+                  headings={["ID", "Customer", "Amount", "Status", "Representative"]}
+                  rows={cRows as any}
+                />
+              )}
+            </Card>
+          </Layout.Section>
+
+          {/* Row 3: Balanced Info Blocks */}
+          <Layout.Section variant="oneThird">
+            <Card padding="400">
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">System Status</Text>
+                <BlockStack gap="200">
+                  <InlineStack align="space-between">
+                    <Text as="span" tone="subdued">Monitoring</Text>
+                    <Badge tone="success">Live</Badge>
                   </InlineStack>
-                </Box>
-                {cRows.length === 0 ? (
-                  <Box padding="800">
-                    <Text as="p" alignment="center" tone="subdued">Waiting for new activity...</Text>
-                  </Box>
-                ) : (
-                  <DataTable
-                    columnContentTypes={["text", "text", "text", "numeric", "text"]}
-                    headings={["ID", "Customer", "Amount", "Status", "Representative"]}
-                    rows={cRows as any}
-                    hoverable
-                  />
-                )}
+                  <InlineStack align="space-between">
+                    <Text as="span" tone="subdued">Commission</Text>
+                    <Text as="span" fontWeight="bold">{settings?.commissionRate}%</Text>
+                  </InlineStack>
+                  <InlineStack align="space-between">
+                    <Text as="span" tone="subdued">Network Access</Text>
+                    <Badge tone="info">{settings?.isMarketplaceEnabled ? "Public" : "Private"}</Badge>
+                  </InlineStack>
+                </BlockStack>
+                <Divider />
+                <BlockStack gap="200">
+                  <Text as="h3" variant="headingSm">AI Tip</Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Rates increase by 20% when carts are claimed within 30 minutes.
+                  </Text>
+                </BlockStack>
+                <Button fullWidth url="/app/settings">Configuration Settings</Button>
               </BlockStack>
             </Card>
           </Layout.Section>
 
           <Layout.Section variant="oneThird">
-            <BlockStack gap="400">
-              <Card>
-                <BlockStack gap="400">
-                  <Text as="h2" variant="headingMd">📡 Global Activity</Text>
-                  <Divider />
-                  <BlockStack gap="300">
-                    {recentEvents.map((event: any) => (
-                      <Box key={event.id} padding="200" background="bg-surface-secondary" borderRadius="200">
-                        <BlockStack gap="100">
-                          <InlineStack align="space-between">
-                            <Text as="span" fontWeight="bold">
-                              {event.type === "claim" ? "🤝 Claimed" : event.type === "recovery" ? "💰 Recovered" : "📞 Contacted"}
-                            </Text>
-                            <Text as="span" variant="bodyXs" tone="subdued">{event.time}</Text>
-                          </InlineStack>
-                          <Text as="p" variant="bodySm">
-                            {event.rep} handled a <strong>{event.amount}</strong> cart.
-                          </Text>
-                        </BlockStack>
-                      </Box>
-                    ))}
-                  </BlockStack>
-                </BlockStack>
-              </Card>
-
-              <Card background="bg-surface-info">
+            <Card padding="400">
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">Top Representatives</Text>
                 <BlockStack gap="300">
-                  <Text as="h2" variant="headingSm">⚡ Coming Soon: AI Voice</Text>
-                  <Text as="p" variant="bodySm">
-                    We're building an AI voice recovery system for automated outbound calls. Late-night recoveries made easy!
-                  </Text>
-                  <Button variant="plain">Join Waitlist</Button>
+                  {topReps && topReps.length > 0 ? topReps.slice(0, 3).map((rep: any, i: number) => (
+                    <InlineStack key={i} align="space-between">
+                      <Text as="span" fontWeight="bold">{rep.firstName} {rep.lastName?.charAt(0)}.</Text>
+                      <Badge tone={rep.tier === "PLATINUM" ? "magic" : "info"}>{rep.tier}</Badge>
+                    </InlineStack>
+                  )) : (
+                    <Text as="p" tone="subdued">Connecting to Rebound...</Text>
+                  )}
                 </BlockStack>
-              </Card>
-            </BlockStack>
+                <Button variant="plain">View full network</Button>
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+
+          <Layout.Section variant="oneThird">
+            <Card padding="400">
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">Global Pulse</Text>
+                <BlockStack gap="200">
+                  {recentEvents && recentEvents.length > 0 ? recentEvents.slice(0, 3).map((event: any) => (
+                    <Text key={event.id} as="p" variant="bodySm" tone="subdued">
+                      <strong>{event.rep}</strong> recovered a {event.amount} cart {event.time}.
+                    </Text>
+                  )) : (
+                    <Text as="p" tone="subdued">Scanning global events...</Text>
+                  )}
+                </BlockStack>
+              </BlockStack>
+            </Card>
           </Layout.Section>
         </Layout>
 
-        <Box paddingBlockStart="800">
-          <Card>
+        {/* How it Works - Flywheel Reintegration */}
+        <Box paddingBlockStart="800" paddingBlockEnd="800">
+          <Card background="bg-surface-secondary">
             <BlockStack gap="600">
               <Text as="h2" variant="headingLg" alignment="center">How the Rebound Flywheel Works</Text>
               <Grid>
@@ -618,14 +496,6 @@ export default function Index() {
           </Card>
         </Box>
       </BlockStack>
-      <style dangerouslySetInnerHTML={{
-        __html: `
-        @keyframes pulse {
-          0% { opacity: 1; }
-          50% { opacity: 0.4; }
-          100% { opacity: 1; }
-        }
-      `}} />
     </Page>
   );
 }
