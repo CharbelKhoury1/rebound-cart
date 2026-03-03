@@ -25,6 +25,7 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { useState, useEffect } from "react";
+import { syncCheckouts } from "../utils/sync.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -33,64 +34,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const intent = formData.get("intent");
 
   if (intent === "sync") {
-    try {
-      // Re-authenticate to ensure session is fresh and get accessToken
-      const { session } = await authenticate.admin(request);
-      const shop = session.shop;
-      const accessToken = session.accessToken;
-
-      console.log(`Syncing for shop: ${shop}`);
-      // Direct fetch to REST API (often more permissive for unprotected data in dev)
-      const response = await fetch(
-        `https://${shop}/admin/api/2025-01/checkouts.json`,
-        {
-          headers: {
-            "X-Shopify-Access-Token": accessToken!,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      console.log(`Shopify API Response Status: ${response.status}`);
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.errors || `Shopify API returned ${response.status}`);
-      }
-
-      const responseJson: any = await response.json();
-      const abandonedCheckouts = responseJson.checkouts || [];
-
-      console.log(`REST Sync: Found ${abandonedCheckouts.length} checkouts`);
-
-      for (const checkout of abandonedCheckouts) {
-        await db.abandonedCheckout.upsert({
-          where: { checkoutId: String(checkout.id) },
-          update: {
-            totalPrice: checkout.total_price,
-            currency: checkout.currency,
-            email: checkout.email || null,
-          },
-          create: {
-            shop,
-            checkoutId: String(checkout.id),
-            email: checkout.email || null,
-            totalPrice: checkout.total_price,
-            currency: checkout.currency,
-            checkoutUrl: checkout.abandoned_checkout_url,
-            status: "ABANDONED",
-            createdAt: new Date(checkout.created_at),
-          },
-        });
-      }
-
-      return json({ success: true, count: abandonedCheckouts.length });
-    } catch (error: any) {
-      console.error("Sync Error:", error);
-      return json({
-        success: false,
-        error: error.message || "Failed to fetch. Please check 'Protected Customer Data' in Partner Dashboard."
-      }, { status: 500 });
+    const result = await syncCheckouts(admin, shop);
+    if (result.success) {
+      return json({ success: true, count: result.count });
+    } else {
+      return json({ success: false, error: "Failed to sync checkouts" }, { status: 500 });
     }
   }
 

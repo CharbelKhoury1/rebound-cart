@@ -5,13 +5,17 @@ import { AppProvider } from "@shopify/shopify-app-remix/react";
 import { NavMenu } from "@shopify/app-bridge-react";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 
-import { authenticate } from "../shopify.server";
+import shopify, { authenticate, registerWebhooks } from "../shopify.server";
 import db from "../db.server";
 
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
+
+  // Register webhooks automatically when the app is loaded
+  await registerWebhooks({ session });
+
   return {
     apiKey: process.env.SHOPIFY_API_KEY || "",
   };

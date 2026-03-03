@@ -23,6 +23,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
+import { syncCheckouts } from "../utils/sync.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -95,7 +96,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     });
   }
 
-  const totalAbandoned = await db.abandonedCheckout.count({ where: { shop } });
+  let totalAbandoned = await db.abandonedCheckout.count({ where: { shop } });
+
+  // If no checkouts are found, perform an initial sync
+  if (totalAbandoned === 0) {
+    const { admin } = await authenticate.admin(request);
+    await syncCheckouts(admin, shop);
+    // Recount after sync
+    totalAbandoned = await db.abandonedCheckout.count({ where: { shop } });
+  }
+
   const totalRecovered = await db.abandonedCheckout.count({ where: { shop, status: "RECOVERED" } });
   const commissions = await db.commission.findMany({
     where: { checkout: { shop } },
@@ -136,7 +146,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
   const formData = await request.formData();
+  const intent = formData.get("intent");
   const commissionRate = formData.get("commissionRate");
+
+  if (intent === "sync") {
+    const { admin } = await authenticate.admin(request);
+    const result = await syncCheckouts(admin, shop);
+    const totalAbandoned = await db.abandonedCheckout.count({ where: { shop } });
+    return json({ success: true, count: result.count, totalAbandoned });
+  }
 
   if (commissionRate) {
     const rate = Number(commissionRate);
@@ -163,6 +181,8 @@ export default function Index() {
   const data = useLoaderData<typeof loader>();
   const { userRole, stats, recentCheckouts, settings } = data as any;
   const fetcher = useFetcher();
+
+  const isSyncing = fetcher.state !== "idle" && fetcher.formData?.get("intent") === "sync";
 
   // ── ADMIN VIEW ───────────────────────────────────────────────
   if (userRole === "ADMIN") {
@@ -306,6 +326,14 @@ export default function Index() {
                 </Text>
               </BlockStack>
               <InlineStack gap="200" blockAlign="center">
+                <Button
+                  icon={isSyncing ? undefined : "refresh"}
+                  onClick={() => fetcher.submit({ intent: "sync" }, { method: "post" })}
+                  loading={isSyncing}
+                  variant="tertiary"
+                >
+                  {isSyncing ? "Syncing..." : "Sync Now"}
+                </Button>
                 <div style={{
                   width: 10,
                   height: 10,
