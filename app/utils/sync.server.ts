@@ -12,7 +12,11 @@ export async function syncCheckouts(admin: AdminApiContext, shop: string) {
           edges {
             node {
               id
-              email
+              customer {
+                email
+                firstName
+                lastName
+              }
               totalPriceSet {
                 presentmentMoney {
                   amount
@@ -35,7 +39,6 @@ export async function syncCheckouts(admin: AdminApiContext, shop: string) {
         }
 
         const edges = responseJson.data?.abandonedCheckouts?.edges || [];
-
         console.log(`Sync found ${edges.length} checkouts`);
 
         let syncCount = 0;
@@ -43,18 +46,24 @@ export async function syncCheckouts(admin: AdminApiContext, shop: string) {
             try {
                 const node = edge.node;
                 const checkoutId = node.id.split("/").pop();
+                const email = node.customer?.email || null;
+                const firstName = node.customer?.firstName || "";
+                const lastName = node.customer?.lastName || "";
+                const name = `${firstName} ${lastName}`.trim() || null;
 
                 await db.abandonedCheckout.upsert({
                     where: { checkoutId: String(checkoutId) },
                     update: {
                         totalPrice: node.totalPriceSet?.presentmentMoney?.amount || 0,
                         currency: node.totalPriceSet?.presentmentMoney?.currencyCode || "USD",
-                        email: node.email || null,
+                        email: email,
+                        name: name,
                     },
                     create: {
                         shop,
                         checkoutId: String(checkoutId),
-                        email: node.email || null,
+                        email: email,
+                        name: name,
                         totalPrice: node.totalPriceSet?.presentmentMoney?.amount || 0,
                         currency: node.totalPriceSet?.presentmentMoney?.currencyCode || "USD",
                         checkoutUrl: node.abandonedCheckoutUrl,

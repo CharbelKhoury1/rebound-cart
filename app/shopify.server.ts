@@ -10,7 +10,7 @@ import prisma from "./db.server";
 // Validate required environment variables
 const requiredEnvVars = [
   "SHOPIFY_API_KEY",
-  "SHOPIFY_API_SECRET", 
+  "SHOPIFY_API_SECRET",
   "SHOPIFY_APP_URL"
 ];
 
@@ -23,7 +23,7 @@ if (missingEnvVars.length > 0) {
 }
 
 // Default scopes if not provided in environment
-const defaultScopes = "read_orders,read_checkouts,write_orders,write_checkouts,read_products";
+const defaultScopes = "read_orders,read_checkouts,write_orders,write_checkouts,read_products,read_customers";
 const scopes = process.env.SCOPES || defaultScopes;
 
 const shopify = shopifyApp({
