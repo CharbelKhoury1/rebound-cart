@@ -50,7 +50,7 @@ export default function MarketplacePage() {
 
     return (
         <Page fullWidth>
-            <TitleBar title="Representative Marketplace" />
+            <TitleBar title="Representative Directory" />
 
             <BlockStack gap="500">
                 {/* Marketplace Hero */}
@@ -62,15 +62,15 @@ export default function MarketplacePage() {
                     <Grid>
                         <Grid.Cell columnSpan={{ xs: 6, md: 4 }}>
                             <BlockStack gap="400">
-                                <Text as="h1" variant="heading2xl">Connect with Top Sales Talent</Text>
+                                <Text as="h1" variant="heading2xl">Our Certified Sales Specialists</Text>
                                 <Text as="p" variant="bodyLg">
-                                    Our network of {stats.repCount} certified representatives is ready to turn your abandoned carts into recovered revenue.
-                                    Every rep in the Rebound network undergoes rigorous performance monitoring.
+                                    ReboundCart provides a managed network of professional sales representatives.
+                                    Our platform automatically assigns the best-suited specialists to your checkouts to maximize recovery rates.
                                 </Text>
                                 <InlineStack gap="400">
-                                    <Badge tone="success">Verified Experts</Badge>
-                                    <Badge tone="info">Real-time Attribution</Badge>
-                                    <Badge tone="magic">24/7 Monitoring</Badge>
+                                    <Badge tone="success">Platform Managed</Badge>
+                                    <Badge tone="info">Vetted Talent</Badge>
+                                    <Badge tone="magic">Performance Tracked</Badge>
                                 </InlineStack>
                             </BlockStack>
                         </Grid.Cell>
@@ -79,7 +79,7 @@ export default function MarketplacePage() {
                                 <BlockStack gap="400" align="center">
                                     <BlockStack gap="100" align="center">
                                         <Text as="h2" variant="heading3xl" alignment="center">${(stats.totalRecovered / 1000).toFixed(1)}k</Text>
-                                        <Text as="p" tone="subdued" alignment="center">Global Recovered Revenue</Text>
+                                        <Text as="p" tone="subdued" alignment="center">Network Revenue Recovered</Text>
                                     </BlockStack>
                                     <Divider />
                                     <InlineStack align="space-between">
@@ -96,7 +96,7 @@ export default function MarketplacePage() {
                     <Layout.Section>
                         <Card padding="0">
                             <Box padding="400" borderBlockEndWidth="025" borderColor="border">
-                                <Text as="h2" variant="headingMd">Available Specialists</Text>
+                                <Text as="h2" variant="headingMd">Network Specialists</Text>
                             </Box>
                             <ResourceList
                                 resourceName={{ singular: 'representative', plural: 'representatives' }}
@@ -119,10 +119,10 @@ export default function MarketplacePage() {
                                                 <BlockStack gap="100">
                                                     <InlineStack gap="200" blockAlign="center">
                                                         <Text variant="bodyMd" fontWeight="bold" as="span">
-                                                            {firstName} {lastName}
+                                                            {firstName} {lastName?.charAt(0)}.
                                                         </Text>
                                                         <Badge tone={tier === "PLATINUM" ? "magic" : tier === "GOLD" ? "info" : "attention"}>
-                                                            {tier}
+                                                            {`${tier} Specialist`}
                                                         </Badge>
                                                     </InlineStack>
                                                     <InlineStack gap="200" wrap>
@@ -134,10 +134,9 @@ export default function MarketplacePage() {
                                                 </BlockStack>
                                                 <InlineStack gap="300">
                                                     <BlockStack gap="0" align="end">
-                                                        <Text as="span" variant="bodySm" tone="subdued">Fluent in</Text>
-                                                        <Text as="span" fontWeight="bold">{language || "English"}</Text>
+                                                        <Text as="span" variant="bodySm" tone="subdued">Status</Text>
+                                                        <Badge tone="success">Verified</Badge>
                                                     </BlockStack>
-                                                    <Button variant="primary">Claim Expert</Button>
                                                 </InlineStack>
                                             </InlineStack>
                                         </ResourceItem>
@@ -151,19 +150,19 @@ export default function MarketplacePage() {
                         <BlockStack gap="400">
                             <Card>
                                 <BlockStack gap="400">
-                                    <Text as="h2" variant="headingMd">Why Use Reps?</Text>
+                                    <Text as="h2" variant="headingMd">Managed Recovery</Text>
                                     <BlockStack gap="300">
                                         <InlineStack gap="200">
-                                            <div style={{ fontSize: "20px" }}>🎯</div>
-                                            <Text as="p" variant="bodySm"><strong>Human Touch:</strong> Reps handle objections that emails can't.</Text>
-                                        </InlineStack>
-                                        <InlineStack gap="200">
-                                            <div style={{ fontSize: "20px" }}>🚀</div>
-                                            <Text as="p" variant="bodySm"><strong>High ROI:</strong> Only pay when they successfully recover a sale.</Text>
-                                        </InlineStack>
-                                        <InlineStack gap="200">
                                             <div style={{ fontSize: "20px" }}>🛡️</div>
-                                            <Text as="p" variant="bodySm"><strong>Zero Risk:</strong> If they don't recover, you don't pay.</Text>
+                                            <Text as="p" variant="bodySm"><strong>Platform Vetting:</strong> We handle all recruitment, training, and quality control.</Text>
+                                        </InlineStack>
+                                        <InlineStack gap="200">
+                                            <div style={{ fontSize: "20px" }}>🤖</div>
+                                            <Text as="p" variant="bodySm"><strong>Smart Matching:</strong> Our AI assigns the best rep for each customer automatically.</Text>
+                                        </InlineStack>
+                                        <InlineStack gap="200">
+                                            <div style={{ fontSize: "20px" }}>📈</div>
+                                            <Text as="p" variant="bodySm"><strong>Unbiased Performance:</strong> Reps are incentivized purely by your success.</Text>
                                         </InlineStack>
                                     </BlockStack>
                                 </BlockStack>
@@ -171,9 +170,9 @@ export default function MarketplacePage() {
 
                             <Box padding="500" background="bg-surface-info" borderRadius="300">
                                 <BlockStack gap="200">
-                                    <Text as="h3" variant="headingSm">Network Tip</Text>
+                                    <Text as="h3" variant="headingSm">Admin Support</Text>
                                     <Text as="p" variant="bodySm" tone="subdued">
-                                        Reps with "Bilingual" skills see a 20% higher recovery rate for international stores.
+                                        Have a specific request for your store's sales team? Contact the platform administrator directly.
                                     </Text>
                                 </BlockStack>
                             </Box>

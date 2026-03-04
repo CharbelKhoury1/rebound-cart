@@ -85,7 +85,7 @@ export default function CheckoutsPage() {
         </Text>
       </InlineStack>
     ) : (
-      <Badge tone="new">Marketplace</Badge>
+      <Badge tone="new">Awaiting Assignment</Badge>
     ),
     new Date(checkout.createdAt).toLocaleDateString(),
   ]);
@@ -250,7 +250,7 @@ export default function CheckoutsPage() {
                     Assigned to: <strong>{`${selectedCheckout.claimedBy.firstName || ""} ${selectedCheckout.claimedBy.lastName || ""}`.trim()}</strong> ({selectedCheckout.claimedBy.email})
                   </Text>
                 ) : (
-                  <Text as="p" tone="subdued">This checkout is currently available in the marketplace for any authorized representative to claim.</Text>
+                  <Text as="p" tone="subdued">This checkout is being optimized for assignment to our next available specialized representative.</Text>
                 )}
               </BlockStack>
             </BlockStack>

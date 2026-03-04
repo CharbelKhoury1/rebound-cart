@@ -358,7 +358,7 @@ export default function Index() {
                     <Text as="p" tone="subdued">Connecting to Rebound...</Text>
                   )}
                 </BlockStack>
-                <Button variant="plain">View full network</Button>
+
               </BlockStack>
             </Card>
           </Layout.Section>

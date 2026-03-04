@@ -1,5 +1,5 @@
 import { json, type LoaderFunctionArgs } from "@remix-run/node";
-import { useLoaderData } from "@remix-run/react";
+import { useLoaderData, useFetcher } from "@remix-run/react";
 import {
     Page,
     Layout,
@@ -12,6 +12,8 @@ import {
     ProgressBar,
     Divider,
     Banner,
+    Button,
+    Grid,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -20,22 +22,45 @@ import db from "../db.server";
 /* ============================================================
    LOADER — aggregate all analytics data
    ============================================================ */
+/* ============================================================
+   LOADER — aggregate all analytics data
+   ============================================================ */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const { session } = await authenticate.admin(request);
     const shop = session.shop;
+    const url = new URL(request.url);
+    const range = url.searchParams.get("range") || "30d";
+
+    let dateFilter: any = {};
+    const now = new Date();
+
+    if (range === "today") {
+        const today = new Date(now.setHours(0, 0, 0, 0));
+        dateFilter = { gte: today };
+    } else if (range === "7d") {
+        const lastWeek = new Date(now.setDate(now.getDate() - 7));
+        dateFilter = { gte: lastWeek };
+    } else if (range === "30d") {
+        const lastMonth = new Date(now.setDate(now.getDate() - 30));
+        dateFilter = { gte: lastMonth };
+    } else if (range === "all") {
+        dateFilter = undefined;
+    }
+
+    const whereBase = { shop, ...(dateFilter ? { createdAt: dateFilter } : {}) };
 
     // ── Checkout stats ──────────────────────────────────────────
-    const totalAbandoned = await db.abandonedCheckout.count({ where: { shop } });
-    const totalRecovered = await db.abandonedCheckout.count({ where: { shop, status: "RECOVERED" } });
-    const totalUnclaimed = await db.abandonedCheckout.count({ where: { shop, claimedById: null } });
-    const totalClaimed = await db.abandonedCheckout.count({ where: { shop, claimedById: { not: null } } });
+    const totalAbandoned = await db.abandonedCheckout.count({ where: whereBase });
+    const totalRecovered = await db.abandonedCheckout.count({ where: { ...whereBase, status: "RECOVERED" } });
+    const totalUnclaimed = await db.abandonedCheckout.count({ where: { ...whereBase, claimedById: null } });
+    const totalClaimed = await db.abandonedCheckout.count({ where: { ...whereBase, claimedById: { not: null } } });
     const recoveryRate = totalAbandoned > 0 ? (totalRecovered / totalAbandoned) * 100 : 0;
     const claimRate = totalAbandoned > 0 ? (totalClaimed / totalAbandoned) * 100 : 0;
 
     // ── Revenue stats ────────────────────────────────────────────
     const allCommissions = await db.commission.findMany({
-        where: { checkout: { shop } },
-        select: { commissionAmount: true, totalAmount: true, platformFee: true, status: true },
+        where: { checkout: whereBase },
+        select: { commissionAmount: true, totalAmount: true, platformFee: true, status: true, createdAt: true, checkout: { select: { createdAt: true } } },
     });
 
     const totalRevenue = allCommissions.reduce((s, c) => s + Number(c.totalAmount), 0);
@@ -43,16 +68,38 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const totalPlatformFees = allCommissions.reduce((s, c) => s + Number(c.platformFee ?? 0), 0);
     const avgOrderValue = allCommissions.length > 0 ? totalRevenue / allCommissions.length : 0;
 
+    // ── Recovery Velocity (Avg time to recover) ──────────────────
+    let totalRecoveryTimeMs = 0;
+    let recoveryCount = 0;
+    allCommissions.forEach(c => {
+        if (c.checkout?.createdAt) {
+            const diff = new Date(c.createdAt).getTime() - new Date(c.checkout.createdAt).getTime();
+            if (diff > 0) {
+                totalRecoveryTimeMs += diff;
+                recoveryCount++;
+            }
+        }
+    });
+    const avgRecoveryTimeHours = recoveryCount > 0 ? (totalRecoveryTimeMs / (1000 * 60 * 60 * recoveryCount)) : 0;
+
+    // ── Peak Recovery Hours (UTC) ────────────────────────────────
+    const hourCounts: Record<number, number> = {};
+    allCommissions.forEach(c => {
+        const hour = new Date(c.createdAt).getUTCHours();
+        hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+    });
+    const peakHour = Object.entries(hourCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
     // ── Top performers ───────────────────────────────────────────
     const topPerformers = await db.platformUser.findMany({
         where: { status: "ACTIVE" },
         include: {
             claimedCheckouts: {
-                where: { shop, status: "RECOVERED" },
+                where: { ...whereBase, status: "RECOVERED" },
                 select: { id: true },
             },
             commissions: {
-                where: { checkout: { shop } },
+                where: { checkout: whereBase },
                 select: { commissionAmount: true, status: true },
             },
         },
@@ -76,7 +123,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
     // ── Claimed checkouts by rep (all, not just recovered) ──────
     const allClaimedCheckouts = await db.abandonedCheckout.findMany({
-        where: { shop, claimedById: { not: null } },
+        where: { ...whereBase, claimedById: { not: null } },
         include: {
             claimedBy: { select: { id: true, firstName: true, lastName: true, tier: true } },
         },
@@ -105,30 +152,29 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         }))
         .sort((a, b) => b.rate - a.rate);
 
-    // ── Monthly breakdown (last 6 months) ────────────────────────
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-
-    const recentCheckouts = await db.abandonedCheckout.findMany({
-        where: { shop, createdAt: { gte: sixMonthsAgo } },
+    // ── Date breakdown (labels depend on range) ─────────────────
+    const dateBreakdownData = await db.abandonedCheckout.findMany({
+        where: whereBase,
         select: { createdAt: true, status: true },
     });
 
-    const monthlyData: Record<string, { abandoned: number; recovered: number }> = {};
-    for (const co of recentCheckouts) {
-        const key = new Date(co.createdAt).toLocaleString("default", {
-            month: "short",
-            year: "2-digit",
-        });
-        if (!monthlyData[key]) monthlyData[key] = { abandoned: 0, recovered: 0 };
-        monthlyData[key].abandoned += 1;
-        if (co.status === "RECOVERED") monthlyData[key].recovered += 1;
+    const breakdown: Record<string, { abandoned: number; recovered: number }> = {};
+    for (const co of dateBreakdownData) {
+        let key = "";
+        if (range === "today") {
+            key = new Date(co.createdAt).getUTCHours() + ":00";
+        } else {
+            key = new Date(co.createdAt).toLocaleDateString("default", { month: "short", day: "numeric" });
+        }
+        if (!breakdown[key]) breakdown[key] = { abandoned: 0, recovered: 0 };
+        breakdown[key].abandoned += 1;
+        if (co.status === "RECOVERED") breakdown[key].recovered += 1;
     }
 
-    const monthlyBreakdown = Object.entries(monthlyData)
-        .sort(([a], [b]) => new Date("01 " + a).getTime() - new Date("01 " + b).getTime())
-        .map(([month, data]) => ({
-            month,
+    const breakdownRows = Object.entries(breakdown)
+        .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
+        .map(([label, data]) => ({
+            label,
             abandoned: data.abandoned,
             recovered: data.recovered,
             rate: data.abandoned > 0 ? (data.recovered / data.abandoned) * 100 : 0,
@@ -136,10 +182,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
     // ── Platform health ───────────────────────────────────────────
     const totalActiveReps = await db.platformUser.count({ where: { status: "ACTIVE", role: "SALES_REP" } });
-    const totalPendingReps = await db.platformUser.count({ where: { status: "PENDING" } });
-    const unclaimedAbandoned = totalUnclaimed;
 
     return json({
+        range,
         checkoutStats: {
             totalAbandoned,
             totalRecovered,
@@ -147,6 +192,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             totalClaimed,
             recoveryRate,
             claimRate,
+            avgRecoveryTimeHours,
+            peakHour,
         },
         revenueStats: {
             totalRevenue,
@@ -157,11 +204,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         },
         performers,
         effectivenessRows,
-        monthlyBreakdown,
+        breakdownRows,
         platformHealth: {
             totalActiveReps,
-            totalPendingReps,
-            unclaimedAbandoned,
+            totalPendingReps: await db.platformUser.count({ where: { status: "PENDING" } }),
+            unclaimedAbandoned: totalUnclaimed,
             avgRecoveryRate: recoveryRate,
         },
     });
@@ -189,8 +236,10 @@ function pct(n: number) {
    COMPONENT
    ============================================================ */
 export default function AnalyticsPage() {
-    const { checkoutStats, revenueStats, performers, effectivenessRows, monthlyBreakdown, platformHealth } =
+    const { range, checkoutStats, revenueStats, performers, effectivenessRows, breakdownRows, platformHealth } =
         useLoaderData<typeof loader>();
+
+    const fetcher = useFetcher();
 
     /* ── Health alerts ── */
     const hasAlerts =
@@ -239,9 +288,9 @@ export default function AnalyticsPage() {
         ),
     ]);
 
-    /* ── Monthly breakdown rows ── */
-    const monthRows = monthlyBreakdown.map((m) => [
-        m.month,
+    /* ── Breakdown rows ── */
+    const breakdownDataTableRows = breakdownRows.map((m: any) => [
+        m.label,
         m.abandoned.toString(),
         m.recovered.toString(),
         <div style={{ minWidth: "140px" }}>
@@ -258,11 +307,55 @@ export default function AnalyticsPage() {
         </div>,
     ]);
 
+    const handleRangeChange = (value: string) => {
+        const url = new URL(window.location.href);
+        url.searchParams.set("range", value);
+        window.history.replaceState({}, "", url.toString());
+        fetcher.load(url.pathname + url.search);
+    };
+
     return (
         <Page>
             <TitleBar title="Analytics & Insights" />
 
             <BlockStack gap="500">
+                {/* ── Time Range Selector ── */}
+                <Layout>
+                    <Layout.Section>
+                        <Card>
+                            <InlineStack align="space-between" blockAlign="center">
+                                <Text as="h2" variant="headingMd">Performance Period</Text>
+                                <InlineStack gap="200">
+                                    <Button
+                                        variant={range === "today" ? "primary" : "secondary"}
+                                        onClick={() => (window.location.href = "?range=today")}
+                                    >
+                                        Today
+                                    </Button>
+                                    <Button
+                                        variant={range === "7d" ? "primary" : "secondary"}
+                                        onClick={() => (window.location.href = "?range=7d")}
+                                    >
+                                        Last 7 Days
+                                    </Button>
+                                    <Button
+                                        variant={range === "30d" ? "primary" : "secondary"}
+                                        onClick={() => (window.location.href = "?range=30d")}
+                                    >
+                                        Last 30 Days
+                                    </Button>
+                                    <Button
+                                        variant={range === "all" ? "primary" : "secondary"}
+                                        onClick={() => (window.location.href = "?range=all")}
+                                    >
+                                        All Time
+                                    </Button>
+                                </InlineStack>
+                            </InlineStack>
+                        </Card>
+                    </Layout.Section>
+                </Layout>
+
                 {/* ── Health Alerts (Store Centric) ── */}
                 {hasAlerts && (
                     <Layout>
@@ -296,42 +389,44 @@ export default function AnalyticsPage() {
                         <Text as="h2" variant="headingMd">Checkout Recovery</Text>
                     </Layout.Section>
                     <Layout.Section>
-                        <InlineStack gap="400" wrap>
-                            {[
-                                {
-                                    label: "Total Abandoned",
-                                    value: checkoutStats.totalAbandoned.toString(),
-                                    sub: "All time",
-                                    tone: "base",
-                                },
-                                {
-                                    label: "Total Recovered",
-                                    value: checkoutStats.totalRecovered.toString(),
-                                    sub: pct(checkoutStats.recoveryRate) + " recovery rate",
-                                    tone: "success",
-                                },
-                                {
-                                    label: "Claimed",
-                                    value: checkoutStats.totalClaimed.toString(),
-                                    sub: pct(checkoutStats.claimRate) + " claim rate",
-                                    tone: "base",
-                                },
-                                {
-                                    label: "Unclaimed",
-                                    value: checkoutStats.totalUnclaimed.toString(),
-                                    sub: "Need assignment",
-                                    tone: checkoutStats.totalUnclaimed > 10 ? "critical" : "base",
-                                },
-                            ].map(({ label, value, sub, tone }) => (
-                                <Card key={label}>
+                        <Grid>
+                            <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3 }}>
+                                <Card>
                                     <BlockStack gap="100">
-                                        <Text as="p" variant="bodySm" tone="subdued">{label}</Text>
-                                        <Text as="p" variant="headingLg" fontWeight="bold" tone={tone as any}>{value}</Text>
-                                        <Text as="p" variant="bodySm" tone="subdued">{sub}</Text>
+                                        <Text as="p" variant="bodySm" tone="subdued">Total Abandoned</Text>
+                                        <Text as="p" variant="headingLg" fontWeight="bold">{checkoutStats.totalAbandoned}</Text>
+                                        <Text as="p" variant="bodySm" tone="subdued">{range === "all" ? "All time" : `Last ${range}`}</Text>
                                     </BlockStack>
                                 </Card>
-                            ))}
-                        </InlineStack>
+                            </Grid.Cell>
+                            <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3 }}>
+                                <Card>
+                                    <BlockStack gap="100">
+                                        <Text as="p" variant="bodySm" tone="subdued">Total Recovered</Text>
+                                        <Text as="p" variant="headingLg" fontWeight="bold" tone="success">{checkoutStats.totalRecovered}</Text>
+                                        <Text as="p" variant="bodySm" tone="subdued">{pct(checkoutStats.recoveryRate)} rate</Text>
+                                    </BlockStack>
+                                </Card>
+                            </Grid.Cell>
+                            <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3 }}>
+                                <Card>
+                                    <BlockStack gap="100">
+                                        <Text as="p" variant="bodySm" tone="subdued">Recovery Speed</Text>
+                                        <Text as="p" variant="headingLg" fontWeight="bold" tone="base">{checkoutStats.avgRecoveryTimeHours.toFixed(1)}h</Text>
+                                        <Text as="p" variant="bodySm" tone="subdued">Avg. time to sale</Text>
+                                    </BlockStack>
+                                </Card>
+                            </Grid.Cell>
+                            <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3 }}>
+                                <Card>
+                                    <BlockStack gap="100">
+                                        <Text as="p" variant="bodySm" tone="subdued">Peak Recovery</Text>
+                                        <Text as="p" variant="headingLg" fontWeight="bold" tone="magic">{checkoutStats.peakHour !== null ? `${checkoutStats.peakHour}:00` : "N/A"}</Text>
+                                        <Text as="p" variant="bodySm" tone="subdued">Most active hour (UTC)</Text>
+                                    </BlockStack>
+                                </Card>
+                            </Grid.Cell>
+                        </Grid>
                     </Layout.Section>
 
                     {/* Recovery Rate Progress */}
@@ -339,7 +434,7 @@ export default function AnalyticsPage() {
                         <Card>
                             <BlockStack gap="400">
                                 <InlineStack align="space-between">
-                                    <Text as="h3" variant="headingMd">Overall Recovery Rate</Text>
+                                    <Text as="h3" variant="headingMd">Period Recovery Rate</Text>
                                     <Text as="p" variant="headingLg" tone={checkoutStats.recoveryRate >= 20 ? "success" : checkoutStats.recoveryRate >= 15 ? "base" : "critical"} fontWeight="bold">
                                         {pct(checkoutStats.recoveryRate)}
                                     </Text>
@@ -370,49 +465,75 @@ export default function AnalyticsPage() {
                 {/* ── Revenue Stats ── */}
                 <Layout>
                     <Layout.Section>
-                        <Text as="h2" variant="headingMd">Revenue & Commissions</Text>
+                        <Text as="h2" variant="headingMd">Financial Summary</Text>
                     </Layout.Section>
                     <Layout.Section>
-                        <InlineStack gap="400" wrap>
-                            {[
-                                {
-                                    label: "Total Revenue Recovered",
-                                    value: fmt(revenueStats.totalRevenue),
-                                    sub: `${revenueStats.commissionCount} orders`,
-                                    tone: "success",
-                                },
-                                {
-                                    label: "Commissions Paid Out",
-                                    value: fmt(revenueStats.totalCommissions),
-                                    sub: "To sales reps",
-                                    tone: "base",
-                                },
-                                {
-                                    label: "Platform Fee Revenue",
-                                    value: fmt(revenueStats.totalPlatformFees),
-                                    sub: "ReboundCart's cut",
-                                    tone: "magic",
-                                },
-                                {
-                                    label: "Avg. Recovered Order",
-                                    value: fmt(revenueStats.avgOrderValue),
-                                    sub: "Per recovered checkout",
-                                    tone: "base",
-                                },
-                            ].map(({ label, value, sub, tone }) => (
-                                <Card key={label}>
+                        <Grid>
+                            <Grid.Cell columnSpan={{ xs: 6, md: 3 }}>
+                                <Card>
                                     <BlockStack gap="100">
-                                        <Text as="p" variant="bodySm" tone="subdued">{label}</Text>
-                                        <Text as="p" variant="headingLg" fontWeight="bold" tone={tone as any}>{value}</Text>
-                                        <Text as="p" variant="bodySm" tone="subdued">{sub}</Text>
+                                        <Text as="p" variant="bodySm" tone="subdued">Revenue Recovered</Text>
+                                        <Text as="p" variant="headingLg" fontWeight="bold" tone="success">{fmt(revenueStats.totalRevenue)}</Text>
+                                        <Text as="p" variant="bodySm" tone="subdued">{revenueStats.commissionCount} orders</Text>
                                     </BlockStack>
                                 </Card>
-                            ))}
-                        </InlineStack>
+                            </Grid.Cell>
+                            <Grid.Cell columnSpan={{ xs: 6, md: 3 }}>
+                                <Card>
+                                    <BlockStack gap="100">
+                                        <Text as="p" variant="bodySm" tone="subdued">Net Profit (ROI)</Text>
+                                        <Text as="p" variant="headingLg" fontWeight="bold" tone="success">{fmt(revenueStats.totalRevenue - revenueStats.totalCommissions - revenueStats.totalPlatformFees)}</Text>
+                                        <Text as="p" variant="bodySm" tone="subdued">After all fees</Text>
+                                    </BlockStack>
+                                </Card>
+                            </Grid.Cell>
+                            <Grid.Cell columnSpan={{ xs: 6, md: 3 }}>
+                                <Card>
+                                    <BlockStack gap="100">
+                                        <Text as="p" variant="bodySm" tone="subdued">Avg. Recovery Value</Text>
+                                        <Text as="p" variant="headingLg" fontWeight="bold">{fmt(revenueStats.avgOrderValue)}</Text>
+                                        <Text as="p" variant="bodySm" tone="subdued">Per conversion</Text>
+                                    </BlockStack>
+                                </Card>
+                            </Grid.Cell>
+                            <Grid.Cell columnSpan={{ xs: 6, md: 3 }}>
+                                <Card>
+                                    <BlockStack gap="100">
+                                        <Text as="p" variant="bodySm" tone="subdued">Total Fees</Text>
+                                        <Text as="p" variant="headingLg" fontWeight="bold" tone="critical">{fmt(revenueStats.totalCommissions + revenueStats.totalPlatformFees)}</Text>
+                                        <Text as="p" variant="bodySm" tone="subdued">Cost of recovery</Text>
+                                    </BlockStack>
+                                </Card>
+                            </Grid.Cell>
+                        </Grid>
                     </Layout.Section>
                 </Layout>
 
                 <Divider />
+
+                {/* ── Breakdown ── */}
+                {breakdownRows.length > 0 && (
+                    <Layout>
+                        <Layout.Section>
+                            <Card>
+                                <BlockStack gap="400">
+                                    <BlockStack gap="100">
+                                        <Text as="h2" variant="headingMd">Recovery Timeline</Text>
+                                        <Text as="p" variant="bodySm" tone="subdued">
+                                            Daily breakdown of abandonment vs recovery events
+                                        </Text>
+                                    </BlockStack>
+                                    <DataTable
+                                        columnContentTypes={["text", "numeric", "numeric", "text"]}
+                                        headings={["Period", "Abandoned", "Recovered", "Recovery Rate"]}
+                                        rows={breakdownDataTableRows as any}
+                                        hoverable
+                                    />
+                                </BlockStack>
+                            </Card>
+                        </Layout.Section>
+                    </Layout>
+                )}
 
                 {/* ── Top Performers ── */}
                 <Layout>
@@ -420,14 +541,14 @@ export default function AnalyticsPage() {
                         <Card>
                             <BlockStack gap="400">
                                 <BlockStack gap="100">
-                                    <Text as="h2" variant="headingMd">🏆 Top Performers</Text>
+                                    <Text as="h2" variant="headingMd">🏆 Top Performance Specialists</Text>
                                     <Text as="p" variant="bodySm" tone="subdued">
-                                        Ranked by number of successful checkout recoveries
+                                        Top representatives active for your store in this period
                                     </Text>
                                 </BlockStack>
                                 {performers.length === 0 ? (
                                     <Text as="p" variant="bodyMd" tone="subdued">
-                                        No recoveries yet. Assign checkouts to active sales reps to see performance data.
+                                        No recoveries yet for this period.
                                     </Text>
                                 ) : (
                                     <DataTable
@@ -448,14 +569,14 @@ export default function AnalyticsPage() {
                         <Card>
                             <BlockStack gap="400">
                                 <BlockStack gap="100">
-                                    <Text as="h2" variant="headingMd">Rep Effectiveness</Text>
+                                    <Text as="h2" variant="headingMd">Specialist Effectiveness</Text>
                                     <Text as="p" variant="bodySm" tone="subdued">
-                                        Conversion rate of claimed checkouts → recovered orders per rep. Target: 20%+, Minimum: 15%
+                                        Conversion rate of assigned checkouts → recovered orders.
                                     </Text>
                                 </BlockStack>
                                 {effectivenessRows.length === 0 ? (
                                     <Text as="p" variant="bodyMd" tone="subdued">
-                                        No data yet. Reps need assigned checkouts to show effectiveness metrics.
+                                        No specialist activity recorded for this period.
                                     </Text>
                                 ) : (
                                     <DataTable
@@ -469,30 +590,6 @@ export default function AnalyticsPage() {
                         </Card>
                     </Layout.Section>
                 </Layout>
-
-                {/* ── Monthly Breakdown ── */}
-                {monthlyBreakdown.length > 0 && (
-                    <Layout>
-                        <Layout.Section>
-                            <Card>
-                                <BlockStack gap="400">
-                                    <BlockStack gap="100">
-                                        <Text as="h2" variant="headingMd">Monthly Breakdown (Last 6 Months)</Text>
-                                        <Text as="p" variant="bodySm" tone="subdued">
-                                            Abandoned vs recovered checkouts by month
-                                        </Text>
-                                    </BlockStack>
-                                    <DataTable
-                                        columnContentTypes={["text", "numeric", "numeric", "text"]}
-                                        headings={["Month", "Abandoned", "Recovered", "Recovery Rate"]}
-                                        rows={monthRows}
-                                        hoverable
-                                    />
-                                </BlockStack>
-                            </Card>
-                        </Layout.Section>
-                    </Layout>
-                )}
 
             </BlockStack>
         </Page>
