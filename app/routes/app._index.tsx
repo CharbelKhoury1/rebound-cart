@@ -1,5 +1,5 @@
 import { json, type ActionFunctionArgs, type LoaderFunctionArgs } from "@remix-run/node";
-import { useActionData, useLoaderData, useFetcher, useRouteError, isRouteErrorResponse } from "@remix-run/react";
+import { useLoaderData, useRouteError, isRouteErrorResponse } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -26,13 +26,8 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { resolveUserContext } from "../services/roles.server";
-import {
-  getPlatformAdminDashboardStats,
-  getSalesRepDashboardStats,
-  getStoreOwnerDashboard,
-} from "../services/checkouts.server";
+import { getPlatformAdminDashboardStats, getSalesRepDashboardStats, getStoreOwnerDashboard } from "../services/checkouts.server";
 import { syncShopData } from "../utils/manual-sync.server";
-import { useState, useEffect } from "react";
 import db from "../db.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -105,29 +100,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 export default function Index() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
   const { userRole, stats, recentCheckouts, settings, topReps, setupComplete, recentEvents } = data as any;
-  const fetcher = useFetcher();
-  const [toastActive, setToastActive] = useState(false);
-  const [toastMessage, setToastMessage] = useState("");
-  const [toastError, setToastError] = useState(false);
-
-  const isSyncing = fetcher.state !== "idle" && fetcher.formData?.get("intent") === "sync";
-
-  // Show toast when sync completes
-  useEffect(() => {
-    if (actionData && (actionData as any).success && (actionData as any).message) {
-      setToastMessage((actionData as any).message);
-      setToastError(false);
-      setToastActive(true);
-    } else if (actionData && (actionData as any).error) {
-      setToastMessage((actionData as any).error);
-      setToastError(true);
-      setToastActive(true);
-    }
-  }, [actionData]);
-
-  const toggleToast = () => setToastActive(!toastActive);
 
   // ── ADMIN VIEW ───────────────────────────────────────────────
   if (userRole === "ADMIN") {
@@ -255,20 +228,9 @@ export default function Index() {
     <Page
       title="Dashboard"
       primaryAction={{
-        content: isSyncing ? "Syncing..." : "Sync Store Data",
-        onAction: () => fetcher.submit({ intent: "sync" }, { method: "post" }),
-        loading: isSyncing,
+        content: "View All Checkouts",
+        url: "/app/checkouts",
       }}
-      secondaryActions={[
-        {
-          content: "View All Checkouts",
-          url: "/app/checkouts"
-        },
-        {
-          content: "Manual Sync",
-          url: "/app/sync"
-        }
-      ]}
     >
       <BlockStack gap="500">
         {!setupComplete && (
@@ -445,15 +407,6 @@ export default function Index() {
           </Card>
         </Box>
       </BlockStack>
-
-      {/* Toast Notification */}
-      {toastActive && (
-        <Toast
-          content={toastMessage}
-          error={toastError}
-          onDismiss={toggleToast}
-        />
-      )}
     </Page>
   );
 }

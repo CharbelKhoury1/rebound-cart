@@ -24,14 +24,11 @@ export async function manualSyncAllCheckouts(admin: AdminApiContext, shop: strin
 
     while (retryCount < maxRetries && !success) {
       try {
-        // Build query with cursor for pagination
-        const cursorQuery = cursor ? `after: "${cursor}"` : "";
-        
-        // Try full sync first
+        // Try full sync first - use a nullable cursor variable for pagination
         let response = await admin.graphql(
           `#graphql
           query getAbandonedCheckouts($cursor: String) {
-            abandonedCheckouts(first: 50, ${cursorQuery}) {
+            abandonedCheckouts(first: 50, after: $cursor) {
               edges {
                 node {
                   id
@@ -50,28 +47,6 @@ export async function manualSyncAllCheckouts(admin: AdminApiContext, shop: strin
                   abandonedCheckoutUrl
                   createdAt
                   updatedAt
-                  cartToken
-                  lineItems(first: 10) {
-                    edges {
-                      node {
-                        title
-                        quantity
-                        variant {
-                          title
-                          sku
-                        }
-                      }
-                    }
-                  }
-                  shippingAddress {
-                    firstName
-                    lastName
-                    address1
-                    city
-                    province
-                    country
-                    zip
-                  }
                 }
               }
               pageInfo {
@@ -80,7 +55,11 @@ export async function manualSyncAllCheckouts(admin: AdminApiContext, shop: strin
               }
             }
           }`,
-          { variables: { cursor } }
+          {
+            variables: {
+              cursor,
+            },
+          }
         );
 
         let responseJson: any = await response.json();
@@ -91,7 +70,7 @@ export async function manualSyncAllCheckouts(admin: AdminApiContext, shop: strin
           response = await admin.graphql(
             `#graphql
             query getAbandonedCheckoutsBasic($cursor: String) {
-              abandonedCheckouts(first: 50, ${cursorQuery}) {
+              abandonedCheckouts(first: 50, after: $cursor) {
                 edges {
                   node {
                     id
@@ -104,7 +83,6 @@ export async function manualSyncAllCheckouts(admin: AdminApiContext, shop: strin
                     abandonedCheckoutUrl
                     createdAt
                     updatedAt
-                    cartToken
                   }
                 }
                 pageInfo {
@@ -113,7 +91,11 @@ export async function manualSyncAllCheckouts(admin: AdminApiContext, shop: strin
                 }
               }
             }`,
-            { variables: { cursor } }
+            {
+              variables: {
+                cursor,
+              },
+            }
           );
           responseJson = await response.json();
         }
@@ -149,25 +131,6 @@ export async function manualSyncAllCheckouts(admin: AdminApiContext, shop: strin
             const lastName = node.customer?.lastName || "";
             const name = `${firstName} ${lastName}`.trim() || null;
 
-            // Extract line items for additional context
-            const lineItems = node.lineItems?.edges?.map((item: any) => ({
-              title: item.node.title,
-              quantity: item.node.quantity,
-              variant: item.node.variant?.title || null,
-              sku: item.node.variant?.sku || null
-            })) || [];
-
-            // Extract shipping address
-            const shippingAddress = node.shippingAddress ? {
-              firstName: node.shippingAddress.firstName,
-              lastName: node.shippingAddress.lastName,
-              address1: node.shippingAddress.address1,
-              city: node.shippingAddress.city,
-              province: node.shippingAddress.province,
-              country: node.shippingAddress.country,
-              zip: node.shippingAddress.zip
-            } : null;
-
             await db.abandonedCheckout.upsert({
               where: { checkoutId: String(checkoutId) },
               update: {
@@ -175,7 +138,6 @@ export async function manualSyncAllCheckouts(admin: AdminApiContext, shop: strin
                 currency: node.totalPriceSet?.presentmentMoney?.currencyCode || "USD",
                 email: email,
                 name: name,
-                cartToken: node.cartToken,
                 updatedAt: new Date(node.updatedAt),
                 // Store additional data as JSON if needed
                 // Note: You might want to add these fields to your schema
@@ -188,7 +150,6 @@ export async function manualSyncAllCheckouts(admin: AdminApiContext, shop: strin
                 totalPrice: node.totalPriceSet?.presentmentMoney?.amount || 0,
                 currency: node.totalPriceSet?.presentmentMoney?.currencyCode || "USD",
                 checkoutUrl: node.abandonedCheckoutUrl,
-                cartToken: node.cartToken,
                 status: "ABANDONED",
                 createdAt: new Date(node.createdAt),
                 updatedAt: new Date(node.updatedAt),
