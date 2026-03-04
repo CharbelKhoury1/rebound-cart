@@ -20,12 +20,13 @@ import {
   Box,
   Divider,
   Link,
+  Toast,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { getStoreCheckoutsWithStats } from "../services/checkouts.server";
 import { useState, useEffect } from "react";
-import { syncCheckouts } from "../utils/sync.server";
+import { syncShopData } from "../utils/manual-sync.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -34,11 +35,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const intent = formData.get("intent");
 
   if (intent === "sync") {
-    const result = await syncCheckouts(admin, shop);
+    const result = await syncShopData(admin, shop);
     if (result.success) {
-      return json({ success: true, count: result.count });
+      return json({ success: true, count: result.syncedCount, message: result.message });
     } else {
-      return json({ success: false, error: (result as any).error || "Failed to sync checkouts" }, { status: 500 });
+      return json({ success: false, error: result.message || "Failed to sync checkouts" }, { status: 500 });
     }
   }
 
@@ -101,7 +102,7 @@ export default function CheckoutsPage() {
     const data = fetcher.data as any;
     if (data) {
       if (data.success) {
-        setSyncResult({ success: true, message: `Successfully synced ${data.count} checkouts!` });
+        setSyncResult({ success: true, message: data.message || `Successfully synced ${data.count} checkouts!` });
       } else if (data.error) {
         setSyncResult({ success: false, message: data.error });
       }

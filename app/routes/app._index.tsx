@@ -21,6 +21,7 @@ import {
   Box,
   Banner,
   EmptyState,
+  Toast,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -30,7 +31,9 @@ import {
   getSalesRepDashboardStats,
   getStoreOwnerDashboard,
 } from "../services/checkouts.server";
-import { syncCheckouts } from "../utils/sync.server";
+import { syncShopData } from "../utils/manual-sync.server";
+import { useState, useEffect } from "react";
+import db from "../db.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -59,7 +62,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // If no checkouts are found, perform an initial sync
   if (totalAbandoned === 0) {
     const { admin } = await authenticate.admin(request);
-    await syncCheckouts(admin, shop);
+    await syncShopData(admin, shop);
     // Recount after sync
     totalAbandoned = await getStoreOwnerDashboard(shop).then(
       (data) => data.stats.totalAbandoned,
@@ -92,9 +95,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (intent === "sync") {
     const { admin } = await authenticate.admin(request);
-    const result = await syncCheckouts(admin, shop);
+    const result = await syncShopData(admin, shop);
     const totalAbandoned = await db.abandonedCheckout.count({ where: { shop } });
-    return json({ success: true, count: result.count, totalAbandoned });
+    return json({ success: true, count: result.syncedCount, totalAbandoned, message: result.message, errors: result.errors });
   }
 
   return json({ success: true, error: undefined });
@@ -102,10 +105,29 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 export default function Index() {
   const data = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
   const { userRole, stats, recentCheckouts, settings, topReps, setupComplete, recentEvents } = data as any;
   const fetcher = useFetcher();
+  const [toastActive, setToastActive] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastError, setToastError] = useState(false);
 
   const isSyncing = fetcher.state !== "idle" && fetcher.formData?.get("intent") === "sync";
+
+  // Show toast when sync completes
+  useEffect(() => {
+    if (actionData && (actionData as any).success && (actionData as any).message) {
+      setToastMessage((actionData as any).message);
+      setToastError(false);
+      setToastActive(true);
+    } else if (actionData && (actionData as any).error) {
+      setToastMessage((actionData as any).error);
+      setToastError(true);
+      setToastActive(true);
+    }
+  }, [actionData]);
+
+  const toggleToast = () => setToastActive(!toastActive);
 
   // ── ADMIN VIEW ───────────────────────────────────────────────
   if (userRole === "ADMIN") {
@@ -237,6 +259,16 @@ export default function Index() {
         onAction: () => fetcher.submit({ intent: "sync" }, { method: "post" }),
         loading: isSyncing,
       }}
+      secondaryActions={[
+        {
+          content: "View All Checkouts",
+          url: "/app/checkouts"
+        },
+        {
+          content: "Manual Sync",
+          url: "/app/sync"
+        }
+      ]}
     >
       <BlockStack gap="500">
         {!setupComplete && (
@@ -413,6 +445,15 @@ export default function Index() {
           </Card>
         </Box>
       </BlockStack>
+
+      {/* Toast Notification */}
+      {toastActive && (
+        <Toast
+          content={toastMessage}
+          error={toastError}
+          onDismiss={toggleToast}
+        />
+      )}
     </Page>
   );
 }
